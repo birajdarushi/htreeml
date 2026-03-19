@@ -13,6 +13,7 @@
   let mutationTimer = null;
   let pendingRequests = 0;
   let lastSnapshotHash = null;
+  let lastStructuralHash = null;
   let sessionId = null;
   let snapshotIndex = 0;
 
@@ -34,13 +35,35 @@
     return h;
   }
 
+  // ── Structural hash: counts elements by tag, ignoring text content ────────
+  // Returns a hash that changes only when DOM elements are added/removed,
+  // not when visible text is updated (e.g. feed scroll, live counters).
+  function structuralQuickHash() {
+    const counts = {};
+    document.querySelectorAll('*').forEach(el => {
+      const key = el.tagName.toLowerCase();
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    const sig = Object.keys(counts).sort().map(k => `${k}:${counts[k]}`).join(',');
+    return quickHash(sig);
+  }
+
   // ── Capture the live DOM ──────────────────────────────────────────────────
   function captureSnapshot(trigger = 'auto') {
     const html = document.documentElement.outerHTML;
     const hash = quickHash(html);
+    const structHash = structuralQuickHash();
 
-    if (hash === lastSnapshotHash && trigger === 'auto') return;
+    if (trigger === 'auto') {
+      // Skip completely identical snapshots
+      if (hash === lastSnapshotHash) return;
+      // Skip text-only changes (element structure unchanged) — reduces noise
+      // e.g. feed scrolls, live counters, timestamp updates
+      if (structHash === lastStructuralHash) return;
+    }
+
     lastSnapshotHash = hash;
+    lastStructuralHash = structHash;
 
     const payload = {
       sessionId,

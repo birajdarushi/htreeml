@@ -73,6 +73,15 @@
     0%,100% { opacity:1; } 50% { opacity:.3; }
   }
 
+  /* ── Components button in topbar ──────────────────────────── */
+  #comp-btn {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    padding: 3px 10px; border-radius: 4px;
+    border: 1px solid var(--border2); background: none;
+    color: var(--muted); cursor: pointer; transition: all .15s;
+  }
+  #comp-btn:hover { border-color: var(--amber); color: var(--amber); }
+
   /* ── Sidebar ─────────────────────────────────────────────── */
   #sidebar {
     background: var(--surface);
@@ -107,7 +116,7 @@
 
   .session-block { margin-bottom: 4px; }
   .session-header {
-    display: flex; align-items: center; gap-6px;
+    display: flex; align-items: center;
     padding: 5px 12px;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 10px; color: var(--muted);
@@ -163,6 +172,17 @@
   #timeline-bar::-webkit-scrollbar { height: 2px; }
   #timeline-bar::-webkit-scrollbar-thumb { background: var(--border2); }
 
+  /* ── Diff toggle button ──────────────────────────────────── */
+  #diff-toggle {
+    margin-left: auto; flex-shrink: 0;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    padding: 3px 10px; border-radius: 4px;
+    border: 1px solid var(--border2); background: none;
+    color: var(--muted); cursor: pointer; transition: all .15s;
+  }
+  #diff-toggle:hover { border-color: var(--indigo); color: var(--indigo); }
+  #diff-toggle.active { border-color: var(--indigo); background: #6366f115; color: var(--indigo); }
+
   .snap-chip {
     display: flex; align-items: center; gap: 5px;
     padding: 4px 10px; border-radius: 4px;
@@ -174,11 +194,20 @@
   }
   .snap-chip:hover { border-color: var(--indigo); color: var(--text); }
   .snap-chip.active { border-color: var(--indigo); background: #6366f115; color: var(--indigo); }
+  /* Text-only snapshots are visually dimmed */
+  .snap-chip.text-only { opacity: 0.5; }
+  .snap-chip.text-only:hover { opacity: 1; }
   .trigger-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
   .t-page-load    { background: var(--green); }
   .t-network-idle { background: var(--indigo); }
   .t-dom-mutation { background: var(--amber); }
   .t-manual       { background: var(--red); }
+  /* Indicator that a snapshot has no structural change (text-only) */
+  .text-only-dot {
+    width:5px; height:5px; border-radius:50%;
+    background: var(--muted); flex-shrink:0;
+    opacity: 0.6;
+  }
 
   #preview-area {
     flex: 1; position: relative; overflow: hidden;
@@ -198,6 +227,56 @@
   .empty-title { font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: var(--muted); }
   .empty-sub { font-size: 12px; color: var(--muted); opacity: 0.6; }
 
+  /* ── Diff panel ──────────────────────────────────────────── */
+  #diff-panel {
+    display: none;
+    position: absolute; inset: 0;
+    background: var(--bg);
+    overflow-y: auto;
+    padding: 20px;
+    flex-direction: column; gap: 16px;
+  }
+  #diff-panel.show { display: flex; }
+  .diff-header {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    color: var(--muted); padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .diff-header .diff-title { font-size: 14px; color: var(--text); }
+  .diff-badge-added   { background: #10b98122; color: var(--green); border: 1px solid var(--green); padding: 2px 8px; border-radius: 3px; font-size: 10px; }
+  .diff-badge-removed { background: #ef444422; color: var(--red);   border: 1px solid var(--red);   padding: 2px 8px; border-radius: 3px; font-size: 10px; }
+  .diff-badge-neutral { background: #ffffff10; color: var(--muted);  border: 1px solid var(--border2); padding: 2px 8px; border-radius: 3px; font-size: 10px; }
+  .diff-columns {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  }
+  .diff-col { display: flex; flex-direction: column; gap: 8px; }
+  .diff-col-header {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    padding: 6px 10px; border-radius: 4px;
+    font-weight: 600; letter-spacing: 0.5px;
+  }
+  .diff-col-header.added   { background: #10b98115; color: var(--green); border: 1px solid #10b98130; }
+  .diff-col-header.removed { background: #ef444415; color: var(--red);   border: 1px solid #ef444430; }
+  .diff-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 10px; border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    border: 1px solid transparent;
+  }
+  .diff-row.added   { background: #10b98108; border-color: #10b98120; }
+  .diff-row.removed { background: #ef444408; border-color: #ef444420; }
+  .diff-row .tag-name { color: var(--text); }
+  .diff-row .tag-count { font-weight:600; padding: 1px 6px; border-radius: 3px; font-size: 10px; }
+  .diff-row.added   .tag-count { background: #10b98120; color: var(--green); }
+  .diff-row.removed .tag-count { background: #ef444420; color: var(--red); }
+  .diff-empty { color: var(--muted); font-family: monospace; font-size: 11px; padding: 12px; text-align: center; opacity: 0.6; }
+  .text-only-banner {
+    text-align: center; padding: 40px 20px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--muted);
+  }
+  .text-only-banner .icon { font-size: 36px; margin-bottom: 12px; }
+
   #info-bar {
     background: var(--surface);
     border-top: 1px solid var(--border);
@@ -208,6 +287,43 @@
   }
   #info-bar .url-text { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .info-sep { color: var(--border2); }
+
+  /* ── Components modal ────────────────────────────────────── */
+  #comp-modal-overlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,.7);
+    align-items: center; justify-content: center;
+  }
+  #comp-modal-overlay.show { display: flex; }
+  #comp-modal {
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 8px; width: 640px; max-width: 90vw; max-height: 80vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .modal-header {
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .modal-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: var(--text); flex: 1; }
+  .modal-close {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 16px; padding: 0 4px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .modal-note { font-size: 11px; color: var(--muted); border: 1px solid var(--border2); border-radius: 4px; padding: 8px 12px; }
+  .comp-item {
+    border: 1px solid var(--border2); border-radius: 4px; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 6px;
+    background: #ffffff03;
+  }
+  .comp-tag {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--amber); font-weight: 500;
+  }
+  .comp-meta { font-size: 10px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+  .comp-branches { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .comp-empty { color: var(--muted); font-family: monospace; font-size: 12px; text-align: center; padding: 30px; }
 
   /* ── No data ─────────────────────────────────────────────── */
   #no-server {
@@ -238,6 +354,19 @@
   <div class="ns-sub">Then refresh this page</div>
 </div>
 
+<!-- Components modal -->
+<div id="comp-modal-overlay">
+  <div id="comp-modal">
+    <div class="modal-header">
+      <span class="modal-title">🧩 Detected Shared Components</span>
+      <button class="modal-close" id="comp-modal-close">✕</button>
+    </div>
+    <div class="modal-body" id="comp-modal-body">
+      <div class="comp-empty">Select a session to analyse components.</div>
+    </div>
+  </div>
+</div>
+
 <div id="app">
   <header id="topbar">
     <div class="logo">
@@ -245,6 +374,7 @@
       <span class="logo-name">DOM TREE CAPTURE</span>
     </div>
     <div class="topbar-sep"></div>
+    <button id="comp-btn">🧩 Components</button>
     <div class="pill pill-green" id="live-pill">
       <div id="live-dot"></div>
       <span id="snap-count">0 snapshots</span>
@@ -270,6 +400,7 @@
         <div class="empty-sub">Pick a branch from the tree, then a snapshot from the timeline</div>
       </div>
       <iframe id="preview-frame" style="display:none" sandbox="allow-same-origin allow-scripts"></iframe>
+      <div id="diff-panel"></div>
     </div>
     <div id="info-bar">
       <span class="url-text" id="info-url">—</span>
@@ -283,6 +414,8 @@ let sessions = [];
 let activeBranch = null;
 let activeSnap = null;
 let pollTimer = null;
+let diffMode = false;
+let currentSnapshots = [];  // snapshots of the active branch
 
 // ── Trigger colors ────────────────────────────────────────────────────────
 const TRIGGER_CLASS = {
@@ -383,17 +516,23 @@ async function loadBranch(sessionId, branch) {
   const res = await fetch(`/api/snapshots?session=${encodeURIComponent(sessionId)}&branch=${encodeURIComponent(branch.urlKey)}`);
   const data = await res.json();
 
+  currentSnapshots = data.snapshots || [];
+
   const bar = document.getElementById('timeline-bar');
   bar.innerHTML = '';
 
-  if (!data.snapshots || !data.snapshots.length) {
+  if (!currentSnapshots.length) {
     bar.innerHTML = '<span style="font-family:monospace;font-size:11px;color:var(--muted)">No snapshots</span>';
     return;
   }
 
-  data.snapshots.forEach(snap => {
+  currentSnapshots.forEach((snap, idx) => {
     const chip = document.createElement('div');
     chip.className = 'snap-chip';
+    // Dim chips that have no structural change (text-only) — snap.structuralChange
+    // defaults to true for old snapshots without the field.
+    const isStructural = snap.structuralChange !== false;
+    if (!isStructural) chip.classList.add('text-only');
 
     const dotClass = TRIGGER_CLASS[snap.trigger] || 't-network-idle';
     const timeStr = new Date(snap.timestamp).toLocaleTimeString();
@@ -403,16 +542,40 @@ async function loadBranch(sessionId, branch) {
       <span>#${snap.index}</span>
       <span style="opacity:.5">${snap.trigger.replace('-', ' ')}</span>
       <span style="opacity:.35">${timeStr}</span>
+      ${!isStructural ? '<div class="text-only-dot" title="Text-only change"></div>' : ''}
     `;
+    chip.title = isStructural ? `Snapshot #${snap.index} — structural change` : `Snapshot #${snap.index} — text-only change`;
 
     chip.addEventListener('click', () => {
       document.querySelectorAll('.snap-chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
-      loadSnapshot(sessionId, branch.urlKey, snap);
+
+      if (diffMode && idx > 0) {
+        // In diff mode: compare this snapshot with the previous one
+        loadDiff(sessionId, branch.urlKey, currentSnapshots[idx - 1], snap);
+      } else {
+        loadSnapshot(sessionId, branch.urlKey, snap);
+      }
     });
 
     bar.appendChild(chip);
   });
+
+  // Diff toggle button
+  const diffBtn = document.createElement('button');
+  diffBtn.id = 'diff-toggle';
+  diffBtn.textContent = '📊 Diff mode';
+  if (diffMode) diffBtn.classList.add('active');
+  diffBtn.addEventListener('click', () => {
+    diffMode = !diffMode;
+    diffBtn.classList.toggle('active', diffMode);
+    diffBtn.textContent = diffMode ? '📊 Diff ON' : '📊 Diff mode';
+    if (!diffMode) {
+      // Return to preview mode
+      showPreview();
+    }
+  });
+  bar.appendChild(diffBtn);
 
   // Auto-select last snapshot
   const chips = bar.querySelectorAll('.snap-chip');
@@ -424,15 +587,170 @@ function loadSnapshot(sessionId, urlKey, snap) {
   activeSnap = snap;
   const src = `/api/file?session=${encodeURIComponent(sessionId)}&branch=${encodeURIComponent(urlKey)}&file=${encodeURIComponent(snap.filename)}`;
 
+  showPreview();
+
+  const frame = document.getElementById('preview-frame');
+  frame.src = src;
+
+  const info = document.getElementById('info-url');
+  const changeLabel = snap.structuralChange === false ? ' · text-only' : ' · structural change';
+  info.textContent = `#${snap.index}  ·  ${snap.trigger}  ·  ${new Date(snap.timestamp).toLocaleString()}${changeLabel}`;
+}
+
+// ── Show preview iframe (hide diff panel) ────────────────────────────────
+function showPreview() {
+  const frame = document.getElementById('preview-frame');
+  const empty = document.getElementById('empty-state');
+  const diffPanel = document.getElementById('diff-panel');
+  frame.style.display = 'block';
+  empty.style.display = 'none';
+  diffPanel.classList.remove('show');
+}
+
+// ── Load structural diff between two snapshots ───────────────────────────
+async function loadDiff(sessionId, urlKey, fromSnap, toSnap) {
+  const diffPanel = document.getElementById('diff-panel');
   const frame = document.getElementById('preview-frame');
   const empty = document.getElementById('empty-state');
 
-  frame.src = src;
-  frame.style.display = 'block';
+  frame.style.display = 'none';
   empty.style.display = 'none';
+  diffPanel.classList.add('show');
+  diffPanel.innerHTML = '<div style="color:var(--muted);font-family:monospace;font-size:11px;padding:20px">Loading diff…</div>';
 
   const info = document.getElementById('info-url');
-  info.textContent = `#${snap.index}  ·  ${snap.trigger}  ·  ${new Date(snap.timestamp).toLocaleString()}`;
+  info.textContent = `Diff: #${fromSnap.index} → #${toSnap.index}  ·  ${activeBranch ? activeBranch.url || '' : ''}`;
+
+  try {
+    const res = await fetch(
+      `/api/diff?session=${encodeURIComponent(sessionId)}&branch=${encodeURIComponent(urlKey)}` +
+      `&from=${encodeURIComponent(fromSnap.filename)}&to=${encodeURIComponent(toSnap.filename)}`
+    );
+    if (!res.ok) throw new Error('Diff request failed');
+    const diff = await res.json();
+    renderDiffPanel(diffPanel, fromSnap, toSnap, diff);
+  } catch (e) {
+    diffPanel.innerHTML = `<div style="color:var(--red);font-family:monospace;font-size:11px;padding:20px">Error loading diff: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderDiffPanel(panel, fromSnap, toSnap, diff) {
+  if (diff.isTextOnly) {
+    panel.innerHTML = `
+      <div class="diff-header">
+        <span class="diff-title">Snapshot #${fromSnap.index} → #${toSnap.index}</span>
+        <span class="diff-badge-neutral">text-only change</span>
+        <span style="opacity:.4">${escHtml(fromSnap.trigger)} → ${escHtml(toSnap.trigger)}</span>
+      </div>
+      <div class="text-only-banner">
+        <div class="icon">📝</div>
+        <div>Only text content changed — no DOM elements were added or removed.</div>
+        <div style="margin-top:8px;font-size:11px;opacity:.5">e.g. feed scroll, live counters, timestamp updates</div>
+      </div>
+    `;
+    return;
+  }
+
+  const addedRows = diff.added.length
+    ? diff.added.map(e => `
+        <div class="diff-row added">
+          <span class="tag-name">${escHtml(e.tag)}</span>
+          <span class="tag-count">+${e.count}</span>
+        </div>`).join('')
+    : `<div class="diff-empty">Nothing added</div>`;
+
+  const removedRows = diff.removed.length
+    ? diff.removed.map(e => `
+        <div class="diff-row removed">
+          <span class="tag-name">${escHtml(e.tag)}</span>
+          <span class="tag-count">−${e.count}</span>
+        </div>`).join('')
+    : `<div class="diff-empty">Nothing removed</div>`;
+
+  panel.innerHTML = `
+    <div class="diff-header">
+      <span class="diff-title">Snapshot #${fromSnap.index} → #${toSnap.index}</span>
+      ${diff.added.length   ? `<span class="diff-badge-added">+${diff.added.length} element type${diff.added.length !== 1 ? 's' : ''} added</span>` : ''}
+      ${diff.removed.length ? `<span class="diff-badge-removed">−${diff.removed.length} element type${diff.removed.length !== 1 ? 's' : ''} removed</span>` : ''}
+      <span style="opacity:.4;font-size:10px">${diff.totalFrom} → ${diff.totalTo} total elements</span>
+    </div>
+    <div class="diff-columns">
+      <div class="diff-col">
+        <div class="diff-col-header added">✚ Added elements</div>
+        ${addedRows}
+      </div>
+      <div class="diff-col">
+        <div class="diff-col-header removed">✖ Removed elements</div>
+        ${removedRows}
+      </div>
+    </div>
+  `;
+}
+
+// ── Components button / modal ─────────────────────────────────────────────
+document.getElementById('comp-btn').addEventListener('click', async () => {
+  const overlay = document.getElementById('comp-modal-overlay');
+  const body = document.getElementById('comp-modal-body');
+  overlay.classList.add('show');
+
+  // Find the active session, or use the first available
+  const sessionId = activeBranch
+    ? activeBranch.sessionId
+    : (sessions[0] ? sessions[0].sessionId : null);
+
+  if (!sessionId) {
+    body.innerHTML = '<div class="comp-empty">No session available yet.</div>';
+    return;
+  }
+
+  body.innerHTML = '<div class="comp-empty">Analysing shared structures…</div>';
+
+  try {
+    const res = await fetch(`/api/components?session=${encodeURIComponent(sessionId)}`);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    renderComponentsModal(body, data);
+  } catch (_) {
+    body.innerHTML = '<div class="comp-empty">Failed to load component data.</div>';
+  }
+});
+
+document.getElementById('comp-modal-close').addEventListener('click', () => {
+  document.getElementById('comp-modal-overlay').classList.remove('show');
+});
+document.getElementById('comp-modal-overlay').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget)
+    document.getElementById('comp-modal-overlay').classList.remove('show');
+});
+
+function renderComponentsModal(body, data) {
+  if (data.note) {
+    body.innerHTML = `<div class="modal-note">${escHtml(data.note)}</div>`;
+    return;
+  }
+  if (!data.components || !data.components.length) {
+    body.innerHTML = '<div class="comp-empty">No shared components detected.<br><span style="opacity:.5;font-size:10px">Browse more pages to build up the snapshot tree.</span></div>';
+    return;
+  }
+
+  const noteHtml = `<div class="modal-note">
+    Found <strong>${data.components.length}</strong> element signature${data.components.length !== 1 ? 's' : ''} present in all
+    <strong>${data.totalBranches}</strong> pages. Consider extracting each as a shared BaseComponent.
+  </div>`;
+
+  const items = data.components.map(c => `
+    <div class="comp-item">
+      <div class="comp-tag">${escHtml(c.tag)}</div>
+      <div class="comp-meta">
+        <span>Appears in ${c.occurrences}/${data.totalBranches} pages</span>
+      </div>
+      <div class="comp-branches" title="${escHtml(c.presentIn.join(', '))}">
+        ${escHtml(c.presentIn.slice(0, 3).join(', '))}${c.presentIn.length > 3 ? ` +${c.presentIn.length - 3} more` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  body.innerHTML = noteHtml + items;
 }
 
 // ── Search filter ─────────────────────────────────────────────────────────
@@ -471,7 +789,7 @@ function startPolling() {
 }
 
 function escHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────

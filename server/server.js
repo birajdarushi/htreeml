@@ -19,6 +19,10 @@ if (!fs.existsSync(SNAPSHOTS_DIR)) fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true
 let tree = {};
 let snapshotCount = 0;
 
+// Last structural fingerprint per branch (session/urlKey) — used at save time
+// to detect whether new DOM elements appeared vs text-only changes.
+const branchLastFingerprints = {};
+
 function loadTreeFromDisk() {
   if (!fs.existsSync(SNAPSHOTS_DIR)) return;
   const sessions = fs.readdirSync(SNAPSHOTS_DIR);
@@ -43,6 +47,51 @@ function loadTreeFromDisk() {
 }
 
 loadTreeFromDisk();
+
+// ── Structural fingerprint ────────────────────────────────────────────────
+// Extracts an ordered list of "tag[#id][.classes]" tokens from HTML,
+// ignoring text content. Two snapshots that differ only in text will produce
+// the same fingerprint; adding/removing DOM elements changes it.
+function structuralFingerprint(html) {
+  const SKIP = new Set([
+    'script', 'style', 'meta', 'link', 'noscript', 'br', 'hr',
+    'input', 'img', 'svg', 'path', 'use', 'g', 'circle', 'rect',
+    'line', 'polyline', 'polygon', 'ellipse', 'defs', 'symbol',
+  ]);
+  const tags = [];
+  const tagRe = /<([a-zA-Z][a-zA-Z0-9-]*)([^>]*?)>/g;
+  let m;
+  while ((m = tagRe.exec(html)) !== null) {
+    const tag = m[1].toLowerCase();
+    if (SKIP.has(tag) || tag.startsWith('!')) continue;
+    const attrs = m[2] || '';
+    const idM   = attrs.match(/\bid=["']([^"']*?)["']/);
+    const clsM  = attrs.match(/\bclass=["']([^"']*?)["']/);
+    const id    = idM  ? `#${idM[1]}` : '';
+    const cls   = clsM ? `.${clsM[1].trim().split(/\s+/).sort().join('.')}` : '';
+    tags.push(`${tag}${id}${cls}`);
+  }
+  return tags;
+}
+
+// ── Diff two structural fingerprints ─────────────────────────────────────
+// Returns { added, removed } — arrays of { tag, count } sorted by count desc.
+function diffStructure(fp1, fp2) {
+  const countMap = arr => arr.reduce((m, t) => { m[t] = (m[t] || 0) + 1; return m; }, {});
+  const c1 = countMap(fp1);
+  const c2 = countMap(fp2);
+  const allTags = new Set([...Object.keys(c1), ...Object.keys(c2)]);
+  const added = [], removed = [];
+  allTags.forEach(tag => {
+    const n1 = c1[tag] || 0, n2 = c2[tag] || 0;
+    if (n2 > n1) added.push({ tag, count: n2 - n1 });
+    else if (n1 > n2) removed.push({ tag, count: n1 - n2 });
+  });
+  return {
+    added:   added.sort((a, b) => b.count - a.count),
+    removed: removed.sort((a, b) => b.count - a.count),
+  };
+}
 
 // ── URL → safe folder name ────────────────────────────────────────────────
 function urlToKey(rawUrl) {
@@ -75,6 +124,22 @@ function saveSnapshot(payload) {
   const filepath = path.join(branchDir, filename);
   fs.writeFileSync(filepath, html, 'utf8');
 
+  // ── Structural-change detection ──────────────────────────────────────────
+  // Compare the new snapshot's structural fingerprint to the previous one
+  // on this branch so the viewer can flag text-only vs structural changes.
+  const branchKey = `${sessionId}/${urlKey}`;
+  const fp = structuralFingerprint(html);
+  const prevFp = branchLastFingerprints[branchKey] || [];
+  const structDiff = diffStructure(prevFp, fp);
+  const structuralChange = prevFp.length === 0 ||
+    structDiff.added.length > 0 ||
+    structDiff.removed.length > 0;
+  branchLastFingerprints[branchKey] = fp;
+
+  const changeLabel = structuralChange
+    ? `+${structDiff.added.length}/-${structDiff.removed.length} elem`
+    : 'text-only';
+
   // Update branch meta
   if (!tree[sessionId]) tree[sessionId] = {};
   if (!tree[sessionId][urlKey]) {
@@ -92,7 +157,8 @@ function saveSnapshot(payload) {
     trigger,
     timestamp,
     filename,
-    title
+    title,
+    structuralChange,
   });
 
   // Persist meta
@@ -101,7 +167,7 @@ function saveSnapshot(payload) {
 
   snapshotCount++;
   const timeStr = new Date(timestamp).toLocaleTimeString();
-  console.log(`🌿 [${timeStr}] ${trigger.padEnd(14)} → ${urlKey.substring(0, 50)}`);
+  console.log(`🌿 [${timeStr}] ${trigger.padEnd(14)} → ${urlKey.substring(0, 50)} (${changeLabel})`);
 
   return { urlKey, snapshotCount };
 }
@@ -170,6 +236,94 @@ const server = http.createServer((req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(tree[session][branch]));
+    return;
+  }
+
+  // ── Structural diff between two snapshots on the same branch
+  // GET /api/diff?session=&branch=&from=filename1&to=filename2
+  if (req.method === 'GET' && pathname === '/api/diff') {
+    const { session, branch, from: fromFile, to: toFile } = parsed.query;
+    if (!session || !branch || !fromFile || !toFile) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Missing params' })); return;
+    }
+    const fromPath = path.join(SNAPSHOTS_DIR, session, branch, fromFile);
+    const toPath   = path.join(SNAPSHOTS_DIR, session, branch, toFile);
+    // Path traversal guard
+    if (!fromPath.startsWith(SNAPSHOTS_DIR) || !toPath.startsWith(SNAPSHOTS_DIR)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid path' })); return;
+    }
+    if (!fs.existsSync(fromPath) || !fs.existsSync(toPath)) {
+      res.writeHead(404); res.end(JSON.stringify({ error: 'File not found' })); return;
+    }
+    const html1 = fs.readFileSync(fromPath, 'utf8');
+    const html2 = fs.readFileSync(toPath, 'utf8');
+    const fp1 = structuralFingerprint(html1);
+    const fp2 = structuralFingerprint(html2);
+    const diff = diffStructure(fp1, fp2);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ...diff,
+      isTextOnly: diff.added.length === 0 && diff.removed.length === 0,
+      totalFrom: fp1.length,
+      totalTo:   fp2.length,
+    }));
+    return;
+  }
+
+  // ── Component deduplication: find HTML structures shared across all branches
+  // GET /api/components?session=
+  if (req.method === 'GET' && pathname === '/api/components') {
+    const { session } = parsed.query;
+    if (!session || !tree[session]) {
+      res.writeHead(404); res.end(JSON.stringify({ components: [] })); return;
+    }
+    const branches = Object.values(tree[session]);
+    if (branches.length < 2) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ components: [], note: 'Need ≥2 pages to detect shared components' }));
+      return;
+    }
+    // Build fingerprint set for the first snapshot of every branch
+    const branchFps = [];
+    for (const branch of branches) {
+      if (!branch.snapshots.length) continue;
+      const firstSnap = branch.snapshots[0];
+      const filePath = path.join(SNAPSHOTS_DIR, session, branch.urlKey, firstSnap.filename);
+      if (!fs.existsSync(filePath)) continue;
+      try {
+        const html = fs.readFileSync(filePath, 'utf8');
+        const fp = structuralFingerprint(html);
+        branchFps.push({ urlKey: branch.urlKey, tags: new Set(fp) });
+      } catch (_) {}
+    }
+    if (branchFps.length < 2) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ components: [] }));
+      return;
+    }
+    // Intersection: elements present in EVERY branch
+    const commonTags = [...branchFps[0].tags].filter(tag =>
+      branchFps.every(b => b.tags.has(tag))
+    );
+    // Keep only meaningful elements — bare anonymous tags (div, span, p, …)
+    // without an id/class carry no component identity and are excluded.
+    const BARE = new Set(['html', 'head', 'body', 'div', 'span', 'p', 'a',
+                          'ul', 'ol', 'li', 'table', 'tbody', 'tr', 'td', 'th']);
+    const COMPONENT_TAGS = new Set(['nav', 'header', 'footer', 'aside',
+                                    'section', 'article', 'form', 'dialog']);
+    const meaningful = commonTags.filter(tag => {
+      const base = (tag.match(/^([a-z][a-z0-9-]*)/) || [])[1] || '';
+      if (COMPONENT_TAGS.has(base)) return true;             // semantic block
+      if (BARE.has(base) && !tag.includes('#') && !tag.includes('.')) return false;
+      return tag.includes('#') || tag.includes('.');         // has id/class
+    });
+    const components = meaningful.map(tag => ({
+      tag,
+      presentIn:   branchFps.filter(b => b.tags.has(tag)).map(b => b.urlKey),
+      occurrences: branchFps.filter(b => b.tags.has(tag)).length,
+    })).sort((a, b) => b.occurrences - a.occurrences);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ components, totalBranches: branchFps.length }));
     return;
   }
 
