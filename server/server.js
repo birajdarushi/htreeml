@@ -13,6 +13,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const SNAPSHOTS_ROOT = path.resolve(SNAPSHOTS_DIR);
 const MAX_PATH_SEGMENT_LENGTH = 120;
 const MAX_FILENAME_LENGTH = 255;
+const SAFE_PATH_SEGMENT_RE = new RegExp(`^[a-zA-Z0-9_-]{1,${MAX_PATH_SEGMENT_LENGTH}}$`);
 
 // ── Ensure dirs exist ─────────────────────────────────────────────────────
 if (!fs.existsSync(SNAPSHOTS_DIR)) fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
@@ -114,7 +115,7 @@ function urlToKey(rawUrl) {
 
 function isSafePathSegment(value) {
   return typeof value === 'string' &&
-    new RegExp(`^[a-zA-Z0-9_-]{1,${MAX_PATH_SEGMENT_LENGTH}}$`).test(value);
+    SAFE_PATH_SEGMENT_RE.test(value);
 }
 
 function isSafeSnapshotFilename(value) {
@@ -139,13 +140,13 @@ function resolveSnapshotPath(...segments) {
 function saveSnapshot(payload) {
   const { sessionId, url: rawUrl, pathname, title, trigger, snapshotIndex, timestamp, html } = payload;
   if (!isSafePathSegment(sessionId)) {
-    throw new Error('Invalid sessionId');
+    throw new Error(`Invalid sessionId: use [a-zA-Z0-9_-], max ${MAX_PATH_SEGMENT_LENGTH} chars`);
   }
 
   const urlKey = urlToKey(rawUrl);
   const sessionDir = resolveSnapshotPath(sessionId);
   const branchDir = resolveSnapshotPath(sessionId, urlKey);
-  if (!sessionDir || !branchDir) throw new Error('Invalid snapshot path');
+  if (!sessionDir || !branchDir) throw new Error('Invalid snapshot path for session/branch');
 
   if (!fs.existsSync(branchDir)) fs.mkdirSync(branchDir, { recursive: true });
 
