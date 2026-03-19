@@ -11,6 +11,8 @@ const PORT = 7700;
 const SNAPSHOTS_DIR = path.join(__dirname, 'snapshots');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SNAPSHOTS_ROOT = path.resolve(SNAPSHOTS_DIR);
+const MAX_PATH_SEGMENT_LENGTH = 120;
+const MAX_FILENAME_LENGTH = 255;
 
 // ── Ensure dirs exist ─────────────────────────────────────────────────────
 if (!fs.existsSync(SNAPSHOTS_DIR)) fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
@@ -111,15 +113,23 @@ function urlToKey(rawUrl) {
 }
 
 function isSafePathSegment(value) {
-  return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,120}$/.test(value);
+  return typeof value === 'string' &&
+    new RegExp(`^[a-zA-Z0-9_-]{1,${MAX_PATH_SEGMENT_LENGTH}}$`).test(value);
 }
 
 function isSafeSnapshotFilename(value) {
-  return typeof value === 'string' && /^[a-zA-Z0-9._-]{1,255}$/.test(value);
+  return typeof value === 'string' &&
+    value.length <= MAX_FILENAME_LENGTH &&
+    value.endsWith('.html') &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('..') &&
+    /^[a-zA-Z0-9._-]+$/.test(value);
 }
 
 function resolveSnapshotPath(...segments) {
-  const target = path.resolve(SNAPSHOTS_ROOT, ...segments.map(v => String(v || '')));
+  if (segments.some(v => typeof v !== 'string' || v.length === 0)) return null;
+  const target = path.resolve(SNAPSHOTS_ROOT, ...segments);
   const rootWithSep = `${SNAPSHOTS_ROOT}${path.sep}`;
   if (target === SNAPSHOTS_ROOT || target.startsWith(rootWithSep)) return target;
   return null;
