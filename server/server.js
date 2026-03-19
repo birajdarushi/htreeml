@@ -10,6 +10,10 @@ const url = require('url');
 const PORT = 7700;
 const SNAPSHOTS_DIR = path.join(__dirname, 'snapshots');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const SNAPSHOTS_ROOT = path.resolve(SNAPSHOTS_DIR);
+const MAX_PATH_SEGMENT_LENGTH = 120;
+const MAX_FILENAME_LENGTH = 255;
+const SAFE_PATH_SEGMENT_RE = new RegExp(`^[a-zA-Z0-9_-]{1,${MAX_PATH_SEGMENT_LENGTH}}$`);
 
 // ── Ensure dirs exist ─────────────────────────────────────────────────────
 if (!fs.existsSync(SNAPSHOTS_DIR)) fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
@@ -109,13 +113,40 @@ function urlToKey(rawUrl) {
   }
 }
 
+function isSafePathSegment(value) {
+  return typeof value === 'string' &&
+    SAFE_PATH_SEGMENT_RE.test(value);
+}
+
+function isSafeSnapshotFilename(value) {
+  return typeof value === 'string' &&
+    value.length <= MAX_FILENAME_LENGTH &&
+    value.endsWith('.html') &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('..') &&
+    /^[a-zA-Z0-9._-]+$/.test(value);
+}
+
+function resolveSnapshotPath(...segments) {
+  if (segments.some(v => typeof v !== 'string' || v.length === 0)) return null;
+  const target = path.resolve(SNAPSHOTS_ROOT, ...segments);
+  const rootWithSep = `${SNAPSHOTS_ROOT}${path.sep}`;
+  if (target === SNAPSHOTS_ROOT || target.startsWith(rootWithSep)) return target;
+  return null;
+}
+
 // ── Save a snapshot ───────────────────────────────────────────────────────
 function saveSnapshot(payload) {
   const { sessionId, url: rawUrl, pathname, title, trigger, snapshotIndex, timestamp, html } = payload;
+  if (!isSafePathSegment(sessionId)) {
+    throw new Error(`Invalid sessionId: use [a-zA-Z0-9_-], max ${MAX_PATH_SEGMENT_LENGTH} chars`);
+  }
 
   const urlKey = urlToKey(rawUrl);
-  const sessionDir = path.join(SNAPSHOTS_DIR, sessionId);
-  const branchDir = path.join(sessionDir, urlKey);
+  const sessionDir = resolveSnapshotPath(sessionId);
+  const branchDir = resolveSnapshotPath(sessionId, urlKey);
+  if (!sessionDir || !branchDir) throw new Error('Invalid snapshot path for session/branch');
 
   if (!fs.existsSync(branchDir)) fs.mkdirSync(branchDir, { recursive: true });
 
@@ -246,10 +277,13 @@ const server = http.createServer((req, res) => {
     if (!session || !branch || !fromFile || !toFile) {
       res.writeHead(400); res.end(JSON.stringify({ error: 'Missing params' })); return;
     }
-    const fromPath = path.join(SNAPSHOTS_DIR, session, branch, fromFile);
-    const toPath   = path.join(SNAPSHOTS_DIR, session, branch, toFile);
-    // Path traversal guard
-    if (!fromPath.startsWith(SNAPSHOTS_DIR) || !toPath.startsWith(SNAPSHOTS_DIR)) {
+    if (!isSafePathSegment(session) || !isSafePathSegment(branch) ||
+        !isSafeSnapshotFilename(fromFile) || !isSafeSnapshotFilename(toFile)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid path' })); return;
+    }
+    const fromPath = resolveSnapshotPath(session, branch, fromFile);
+    const toPath   = resolveSnapshotPath(session, branch, toFile);
+    if (!fromPath || !toPath) {
       res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid path' })); return;
     }
     if (!fs.existsSync(fromPath) || !fs.existsSync(toPath)) {
@@ -330,8 +364,11 @@ const server = http.createServer((req, res) => {
   // ── Serve HTML snapshot file
   if (req.method === 'GET' && pathname === '/api/file') {
     const { session, branch, file } = parsed.query;
-    const filePath = path.join(SNAPSHOTS_DIR, session, branch, file);
-    if (!fs.existsSync(filePath) || !filePath.startsWith(SNAPSHOTS_DIR)) {
+    if (!isSafePathSegment(session) || !isSafePathSegment(branch) || !isSafeSnapshotFilename(file)) {
+      res.writeHead(400); res.end('Invalid path'); return;
+    }
+    const filePath = resolveSnapshotPath(session, branch, file);
+    if (!filePath || !fs.existsSync(filePath)) {
       res.writeHead(404); res.end('Not found'); return;
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
