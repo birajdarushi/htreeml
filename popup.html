@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 280px;
+      font-family: 'Courier New', monospace;
+      background: #0f0f0f;
+      color: #e5e5e5;
+      padding: 16px;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 14px;
+    }
+    .logo-icon { font-size: 20px; }
+    .logo-text { font-size: 13px; font-weight: bold; color: #10b981; letter-spacing: 0.5px; }
+    .status-row {
+      display: flex; align-items: center; gap-8px;
+      background: #1a1a1a; border-radius: 6px; padding: 8px 10px;
+      margin-bottom: 12px; gap: 8px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; flex-shrink: 0; }
+    .dot.connected { background: #10b981; }
+    .status-text { font-size: 11px; color: #999; }
+    .btn {
+      width: 100%; padding: 8px; border: none; border-radius: 6px;
+      font-family: monospace; font-size: 12px; cursor: pointer;
+      margin-bottom: 8px; transition: all 0.15s;
+    }
+    .btn-primary { background: #6366f1; color: white; }
+    .btn-primary:hover { background: #4f46e5; }
+    .btn-secondary { background: #1a1a1a; color: #10b981; border: 1px solid #10b981; }
+    .btn-secondary:hover { background: #10b98120; }
+    .shortcut {
+      font-size: 10px; color: #555; text-align: center; margin-top: 4px;
+    }
+    .shortcut kbd {
+      background: #222; color: #aaa; padding: 1px 4px; border-radius: 3px;
+      font-family: monospace; font-size: 10px;
+    }
+    .divider { border: none; border-top: 1px solid #222; margin: 10px 0; }
+    .open-viewer {
+      width: 100%; padding: 8px; border: none; border-radius: 6px;
+      background: #10b98120; color: #10b981; border: 1px solid #10b98140;
+      font-family: monospace; font-size: 11px; cursor: pointer;
+    }
+    .open-viewer:hover { background: #10b98130; }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <span class="logo-icon">🌿</span>
+    <span class="logo-text">DOM TREE CAPTURE</span>
+  </div>
+
+  <div class="status-row">
+    <div class="dot" id="dot"></div>
+    <span class="status-text" id="status-text">Checking server...</span>
+  </div>
+
+  <button class="btn btn-primary" id="snap-btn">📸 Capture Now</button>
+  <div class="shortcut">or press <kbd>Ctrl+Shift+S</kbd></div>
+
+  <hr class="divider">
+
+  <button class="open-viewer" id="viewer-btn">🌐 Open Tree Viewer → localhost:7700</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOM Tree Capture — Viewer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg:       #0a0c0f;
+    --surface:  #111418;
+    --border:   #1e2329;
+    --border2:  #2a3040;
+    --text:     #c9d1d9;
+    --muted:    #4a5568;
+    --green:    #10b981;
+    --green-dim:#0d9268;
+    --indigo:   #6366f1;
+    --amber:    #f59e0b;
+    --red:      #ef4444;
+    --sidebar-w: 320px;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+  }
+
+  /* ── Layout ─────────────────────────────────────────────── */
+  #app {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    grid-template-rows: 48px 1fr;
+    height: 100vh;
+  }
+
+  /* ── Topbar ─────────────────────────────────────────────── */
+  #topbar {
+    grid-column: 1 / -1;
+    display: flex; align-items: center;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    gap: 12px;
+  }
+  .logo { display:flex; align-items:center; gap:8px; }
+  .logo-leaf { font-size:18px; }
+  .logo-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600; font-size: 13px;
+    color: var(--green); letter-spacing: 1px;
+  }
+  .topbar-sep { flex: 1; }
+  .pill {
+    font-family: monospace; font-size: 10px;
+    padding: 2px 8px; border-radius: 20px;
+    border: 1px solid; display: flex; align-items: center; gap: 4px;
+  }
+  .pill-green { border-color: var(--green); color: var(--green); }
+  .pill-muted  { border-color: var(--muted); color: var(--muted); }
+  #live-dot {
+    width:6px; height:6px; border-radius:50%;
+    background: var(--green); animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity:1; } 50% { opacity:.3; }
+  }
+
+  /* ── Sidebar ─────────────────────────────────────────────── */
+  #sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  #search-wrap {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #search {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    outline: none;
+  }
+  #search:focus { border-color: var(--green); }
+
+  #tree-container {
+    flex: 1; overflow-y: auto; padding: 8px 0;
+  }
+  #tree-container::-webkit-scrollbar { width: 4px; }
+  #tree-container::-webkit-scrollbar-track { background: transparent; }
+  #tree-container::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .session-block { margin-bottom: 4px; }
+  .session-header {
+    display: flex; align-items: center; gap-6px;
+    padding: 5px 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; color: var(--muted);
+    letter-spacing: 1px; text-transform: uppercase;
+    cursor: pointer; user-select: none;
+    gap: 6px;
+  }
+  .session-header:hover { color: var(--text); }
+  .session-toggle { opacity: 0.5; transition: transform .2s; }
+  .session-toggle.open { transform: rotate(90deg); }
+
+  .branch-list { padding-left: 0; }
+  .branch-item {
+    padding: 7px 12px 7px 20px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all .15s;
+    position: relative;
+  }
+  .branch-item:hover { background: #ffffff06; border-left-color: var(--border2); }
+  .branch-item.active { background: #10b98110; border-left-color: var(--green); }
+
+  .branch-path {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 2px;
+  }
+  .branch-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; color: var(--muted);
+    display: flex; gap: 8px;
+  }
+  .badge {
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: var(--green); color: #000; font-weight: 600;
+  }
+
+  /* ── Main panel ──────────────────────────────────────────── */
+  #main {
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  #timeline-bar {
+    display: flex; align-items: center;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px; gap: 6px;
+    min-height: 46px; flex-shrink: 0;
+    overflow-x: auto;
+  }
+  #timeline-bar::-webkit-scrollbar { height: 2px; }
+  #timeline-bar::-webkit-scrollbar-thumb { background: var(--border2); }
+
+  .snap-chip {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 4px;
+    border: 1px solid var(--border2);
+    cursor: pointer; flex-shrink: 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; color: var(--muted);
+    transition: all .15s;
+  }
+  .snap-chip:hover { border-color: var(--indigo); color: var(--text); }
+  .snap-chip.active { border-color: var(--indigo); background: #6366f115; color: var(--indigo); }
+  .trigger-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .t-page-load    { background: var(--green); }
+  .t-network-idle { background: var(--indigo); }
+  .t-dom-mutation { background: var(--amber); }
+  .t-manual       { background: var(--red); }
+
+  #preview-area {
+    flex: 1; position: relative; overflow: hidden;
+  }
+  #preview-frame {
+    width: 100%; height: 100%;
+    border: none;
+    background: white;
+  }
+  #empty-state {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; color: var(--muted);
+  }
+  .empty-icon { font-size: 40px; opacity: 0.3; }
+  .empty-title { font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: var(--muted); }
+  .empty-sub { font-size: 12px; color: var(--muted); opacity: 0.6; }
+
+  #info-bar {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 5px 16px;
+    display: flex; align-items: center; gap: 12px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+    color: var(--muted); flex-shrink: 0;
+  }
+  #info-bar .url-text { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .info-sep { color: var(--border2); }
+
+  /* ── No data ─────────────────────────────────────────────── */
+  #no-server {
+    display: none;
+    position: fixed; inset: 0;
+    background: var(--bg);
+    z-index: 100;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px;
+  }
+  #no-server.show { display: flex; }
+  .ns-icon { font-size: 48px; }
+  .ns-title { font-family: 'IBM Plex Mono', monospace; font-size: 18px; color: var(--text); }
+  .ns-cmd {
+    background: var(--surface); border: 1px solid var(--border2);
+    padding: 10px 20px; border-radius: 6px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--green);
+  }
+  .ns-sub { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div id="no-server">
+  <div class="ns-icon">🌿</div>
+  <div class="ns-title">Server not running</div>
+  <div class="ns-cmd">cd server &amp;&amp; node server.js</div>
+  <div class="ns-sub">Then refresh this page</div>
+</div>
+
+<div id="app">
+  <header id="topbar">
+    <div class="logo">
+      <span class="logo-leaf">🌿</span>
+      <span class="logo-name">DOM TREE CAPTURE</span>
+    </div>
+    <div class="topbar-sep"></div>
+    <div class="pill pill-green" id="live-pill">
+      <div id="live-dot"></div>
+      <span id="snap-count">0 snapshots</span>
+    </div>
+    <div class="pill pill-muted" id="session-pill">0 sessions</div>
+  </header>
+
+  <nav id="sidebar">
+    <div id="search-wrap">
+      <input id="search" type="text" placeholder="Filter by URL or path…">
+    </div>
+    <div id="tree-container"></div>
+  </nav>
+
+  <main id="main">
+    <div id="timeline-bar">
+      <span style="font-family:monospace;font-size:11px;color:var(--muted)">← select a branch</span>
+    </div>
+    <div id="preview-area">
+      <div id="empty-state">
+        <div class="empty-icon">🌳</div>
+        <div class="empty-title">No snapshot selected</div>
+        <div class="empty-sub">Pick a branch from the tree, then a snapshot from the timeline</div>
+      </div>
+      <iframe id="preview-frame" style="display:none" sandbox="allow-same-origin allow-scripts"></iframe>
+    </div>
+    <div id="info-bar">
+      <span class="url-text" id="info-url">—</span>
+    </div>
+  </main>
+</div>
+
+<script>
+const API = '';
+let sessions = [];
+let activeBranch = null;
+let activeSnap = null;
+let pollTimer = null;
+
+// ── Trigger colors ────────────────────────────────────────────────────────
+const TRIGGER_CLASS = {
+  'page-load':    't-page-load',
+  'network-idle': 't-network-idle',
+  'dom-mutation': 't-dom-mutation',
+  'manual':       't-manual',
+};
+
+// ── Fetch tree & re-render ────────────────────────────────────────────────
+async function loadTree() {
+  try {
+    const res = await fetch('/api/tree');
+    if (!res.ok) throw new Error();
+    sessions = await res.json();
+    renderTree(sessions);
+    updateTopbar();
+  } catch (_) {
+    document.getElementById('no-server').classList.add('show');
+  }
+}
+
+function updateTopbar() {
+  const total = sessions.reduce((a, s) => a + s.branches.reduce((b, br) => b + br.snapshotCount, 0), 0);
+  document.getElementById('snap-count').textContent = `${total} snapshot${total !== 1 ? 's' : ''}`;
+  document.getElementById('session-pill').textContent = `${sessions.length} session${sessions.length !== 1 ? 's' : ''}`;
+}
+
+// ── Render sidebar tree ───────────────────────────────────────────────────
+function renderTree(data, filter = '') {
+  const container = document.getElementById('tree-container');
+  container.innerHTML = '';
+
+  if (!data.length) {
+    container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted);font-family:monospace;font-size:11px;">No snapshots yet.<br><br>Browse your app with the extension active.</div>`;
+    return;
+  }
+
+  data.forEach((session, si) => {
+    const branches = filter
+      ? session.branches.filter(b => b.url.toLowerCase().includes(filter) || b.pathname.toLowerCase().includes(filter))
+      : session.branches;
+
+    if (!branches.length) return;
+
+    const block = document.createElement('div');
+    block.className = 'session-block';
+
+    const header = document.createElement('div');
+    header.className = 'session-header';
+    const shortId = session.sessionId.replace('session_', '').substring(0, 8);
+    header.innerHTML = `<span class="session-toggle open">▶</span><span>SESSION ${shortId}</span><span style="margin-left:auto;opacity:.4">${branches.length} pages</span>`;
+
+    const list = document.createElement('div');
+    list.className = 'branch-list';
+
+    header.addEventListener('click', () => {
+      const t = header.querySelector('.session-toggle');
+      t.classList.toggle('open');
+      list.style.display = list.style.display === 'none' ? '' : 'none';
+    });
+
+    branches.forEach(branch => {
+      const item = document.createElement('div');
+      item.className = 'branch-item';
+      if (activeBranch && activeBranch.urlKey === branch.urlKey && activeBranch.sessionId === session.sessionId)
+        item.classList.add('active');
+
+      const displayPath = branch.pathname || '/';
+      item.innerHTML = `
+        <div class="branch-path">${escHtml(displayPath)}</div>
+        <div class="branch-meta">
+          <span>${escHtml(new URL(branch.url).hostname)}</span>
+          <span class="badge">${branch.snapshotCount}</span>
+        </div>
+      `;
+      item.title = branch.url;
+
+      item.addEventListener('click', () => {
+        document.querySelectorAll('.branch-item').forEach(el => el.classList.remove('active'));
+        item.classList.add('active');
+        loadBranch(session.sessionId, branch);
+      });
+
+      list.appendChild(item);
+    });
+
+    block.appendChild(header);
+    block.appendChild(list);
+    container.appendChild(block);
+  });
+}
+
+// ── Load branch snapshots into timeline ───────────────────────────────────
+async function loadBranch(sessionId, branch) {
+  activeBranch = { ...branch, sessionId };
+
+  const res = await fetch(`/api/snapshots?session=${encodeURIComponent(sessionId)}&branch=${encodeURIComponent(branch.urlKey)}`);
+  const data = await res.json();
+
+  const bar = document.getElementById('timeline-bar');
+  bar.innerHTML = '';
+
+  if (!data.snapshots || !data.snapshots.length) {
+    bar.innerHTML = '<span style="font-family:monospace;font-size:11px;color:var(--muted)">No snapshots</span>';
+    return;
+  }
+
+  data.snapshots.forEach(snap => {
+    const chip = document.createElement('div');
+    chip.className = 'snap-chip';
+
+    const dotClass = TRIGGER_CLASS[snap.trigger] || 't-network-idle';
+    const timeStr = new Date(snap.timestamp).toLocaleTimeString();
+
+    chip.innerHTML = `
+      <div class="trigger-dot ${dotClass}"></div>
+      <span>#${snap.index}</span>
+      <span style="opacity:.5">${snap.trigger.replace('-', ' ')}</span>
+      <span style="opacity:.35">${timeStr}</span>
+    `;
+
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.snap-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      loadSnapshot(sessionId, branch.urlKey, snap);
+    });
+
+    bar.appendChild(chip);
+  });
+
+  // Auto-select last snapshot
+  const chips = bar.querySelectorAll('.snap-chip');
+  if (chips.length) chips[chips.length - 1].click();
+}
+
+// ── Load snapshot into iframe ─────────────────────────────────────────────
+function loadSnapshot(sessionId, urlKey, snap) {
+  activeSnap = snap;
+  const src = `/api/file?session=${encodeURIComponent(sessionId)}&branch=${encodeURIComponent(urlKey)}&file=${encodeURIComponent(snap.filename)}`;
+
+  const frame = document.getElementById('preview-frame');
+  const empty = document.getElementById('empty-state');
+
+  frame.src = src;
+  frame.style.display = 'block';
+  empty.style.display = 'none';
+
+  const info = document.getElementById('info-url');
+  info.textContent = `#${snap.index}  ·  ${snap.trigger}  ·  ${new Date(snap.timestamp).toLocaleString()}`;
+}
+
+// ── Search filter ─────────────────────────────────────────────────────────
+document.getElementById('search').addEventListener('input', e => {
+  renderTree(sessions, e.target.value.toLowerCase());
+});
+
+// ── Live polling ─────────────────────────────────────────────────────────
+function startPolling() {
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/tree');
+      if (!res.ok) return;
+      const fresh = await res.json();
+      // Smart merge: only re-render if count changed
+      const oldCount = sessions.reduce((a, s) => a + s.branches.reduce((b, br) => b + br.snapshotCount, 0), 0);
+      const newCount = fresh.reduce((a, s) => a + s.branches.reduce((b, br) => b + br.snapshotCount, 0), 0);
+      if (newCount !== oldCount) {
+        sessions = fresh;
+        const filter = document.getElementById('search').value.toLowerCase();
+        renderTree(sessions, filter);
+        updateTopbar();
+
+        // Refresh active branch if it got new snapshots
+        if (activeBranch) {
+          const updated = fresh.find(s => s.sessionId === activeBranch.sessionId)
+            ?.branches.find(b => b.urlKey === activeBranch.urlKey);
+          if (updated && updated.snapshotCount > activeBranch.snapshotCount) {
+            activeBranch.snapshotCount = updated.snapshotCount;
+            loadBranch(activeBranch.sessionId, activeBranch);
+          }
+        }
+      }
+    } catch (_) {}
+  }, 2000);
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+loadTree().then(() => startPolling());
+</script>
+</body>
+</html>
