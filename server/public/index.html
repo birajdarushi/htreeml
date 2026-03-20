@@ -107,7 +107,7 @@
 
   .session-block { margin-bottom: 4px; }
   .session-header {
-    display: flex; align-items: center; gap-6px;
+    display: flex; align-items: center; gap: 6px;
     padding: 5px 12px;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 10px; color: var(--muted);
@@ -140,6 +140,16 @@
     font-family: 'IBM Plex Mono', monospace;
     font-size: 10px; color: var(--muted);
     display: flex; gap: 8px;
+  }
+  .branch-key {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #8f9bb2;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.85;
   }
   .badge {
     font-size: 9px; padding: 1px 5px; border-radius: 3px;
@@ -179,6 +189,8 @@
   .t-network-idle { background: var(--indigo); }
   .t-dom-mutation { background: var(--amber); }
   .t-manual       { background: var(--red); }
+  .t-user-click   { background: #06b6d4; }
+  .t-navigation   { background: #f97316; }
 
   #preview-area {
     flex: 1; position: relative; overflow: hidden;
@@ -290,6 +302,8 @@ const TRIGGER_CLASS = {
   'network-idle': 't-network-idle',
   'dom-mutation': 't-dom-mutation',
   'manual':       't-manual',
+  'user-click':   't-user-click',
+  'navigation':   't-navigation',
 };
 
 // ── Fetch tree & re-render ────────────────────────────────────────────────
@@ -357,7 +371,9 @@ function renderTree(data, filter = '') {
         <div class="branch-meta">
           <span>${escHtml(new URL(branch.url).hostname)}</span>
           <span class="badge">${branch.snapshotCount}</span>
+          ${branch.urls && branch.urls.length > 1 ? `<span>merged:${branch.urls.length}</span>` : ''}
         </div>
+        <div class="branch-key" title="${escHtml(branch.urlKey || '')}">key:${escHtml(branch.urlKey || '')}</div>
       `;
       item.title = branch.url;
 
