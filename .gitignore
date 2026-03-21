@@ -1,3 +1,18 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Logs
+*.log
+npm-debug.log*
+
 # Snapshot files are created at runtime — ignore contents but keep the folder
 server/snapshots/*
 !server/snapshots/.gitkeep
+
+# OS & IDE
+.DS_Store
+.env
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,15 @@
+{
+  "name": "htreeml-mutation-analyzer",
+  "version": "1.0.0",
+  "description": "DOM mutation analysis tool for HTML snapshots",
+  "main": "analyze_mutations.js",
+  "scripts": {
+    "analyze": "node analyze_mutations.js"
+  },
+  "dependencies": {
+    "jsdom": "^23.0.1"
+  },
+  "keywords": ["dom", "mutation", "html", "analysis"],
+  "author": "",
+  "license": "MIT"
+}
