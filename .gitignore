@@ -9,6 +9,9 @@ npm-debug.log*
 # Snapshot files are created at runtime — ignore contents but keep the folder
 server/snapshots/*
 !server/snapshots/.gitkeep
+dispatcher/
+master_page/
+settings/
 
 # OS & IDE
 .DS_Store
