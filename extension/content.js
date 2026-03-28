@@ -32,6 +32,8 @@
   let sessionInitialized = false;
   let recentApiCalls = [];
   let pendingMutationSummary = null;
+  /** @type {Element|null} */
+  let lastClickElement = null;
 
   console.log('DOM Tree Capture initialized');
 
@@ -305,6 +307,82 @@
     return `${tag}${id}${cls}`;
   }
 
+  /**
+   * Capture open listbox / menu / native select options for viewer + mutation JSON.
+   */
+  function collectOpenOverlayContext() {
+    const openMenus = [];
+
+    document.querySelectorAll('[role="listbox"]').forEach((lb) => {
+      const rect = lb.getBoundingClientRect();
+      if (rect.width < 2 && rect.height < 2) return;
+      if (lb.getAttribute('hidden') !== null) return;
+      const opts = Array.from(
+        lb.querySelectorAll('[role="option"], [data-radix-collection-item]')
+      ).slice(0, 400);
+      if (!opts.length) return;
+      openMenus.push({
+        kind: 'listbox',
+        itemCount: opts.length,
+        items: opts.map((el) => ({
+          text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 500),
+          value: el.getAttribute('data-value') || el.getAttribute('value') || '',
+          disabled:
+            el.getAttribute('aria-disabled') === 'true' || el.hasAttribute('data-disabled')
+        }))
+      });
+    });
+
+    document.querySelectorAll('[role="menu"]').forEach((menu) => {
+      const rect = menu.getBoundingClientRect();
+      if (rect.width < 2 && rect.height < 2) return;
+      const items = Array.from(
+        menu.querySelectorAll(
+          '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]'
+        )
+      ).slice(0, 400);
+      if (!items.length) return;
+      openMenus.push({
+        kind: 'menu',
+        itemCount: items.length,
+        items: items.map((el) => ({
+          text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 500)
+        }))
+      });
+    });
+
+    const active = document.activeElement;
+    if (active && active.tagName === 'SELECT') {
+      const sel = active;
+      openMenus.push({
+        kind: 'select',
+        id: sel.id || '',
+        name: sel.name || '',
+        options: Array.from(sel.options).map((o) => ({
+          text: o.text,
+          value: o.value,
+          selected: o.selected
+        }))
+      });
+    }
+
+    return { openMenus, capturedAt: Date.now() };
+  }
+
+  function buildInteractionContext(trigger) {
+    if (trigger !== 'user-click' && trigger !== 'dom-mutation') return null;
+    let clickTarget = null;
+    if (lastClickElement && lastClickElement.nodeType === 1) {
+      clickTarget = describeMutationTarget(lastClickElement);
+    } else if (lastClickElement && lastClickElement.parentElement) {
+      clickTarget = describeMutationTarget(lastClickElement.parentElement);
+    }
+    return {
+      clickTarget,
+      openOverlays: collectOpenOverlayContext()
+    };
+  }
+
   function removeNodes(root, selectors) {
     selectors.forEach((selector) => {
       root.querySelectorAll(selector).forEach((el) => el.remove());
@@ -360,6 +438,7 @@
       domSignature: createDomSignature(html),
       apiCalls: recentApiCalls.slice(-MAX_API_EVENTS_PER_SNAPSHOT),
       mutationSummary: trigger === 'dom-mutation' ? pendingMutationSummary : null,
+      interactionContext: buildInteractionContext(trigger),
       html
     };
 
@@ -552,7 +631,14 @@
       characterData: true
     });
 
-    document.addEventListener('click', scheduleClickCapture, true);
+    document.addEventListener(
+      'click',
+      (ev) => {
+        lastClickElement = ev.target;
+        scheduleClickCapture();
+      },
+      true
+    );
     hookHistoryNavigation();
 
     chrome.runtime.onMessage.addListener((msg) => {

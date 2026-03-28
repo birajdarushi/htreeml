@@ -170,6 +170,34 @@
     min-height: 46px; flex-shrink: 0;
     overflow-x: auto;
   }
+
+  #interaction-panel {
+    display: none;
+    flex-shrink: 0;
+    max-height: 200px;
+    overflow: auto;
+    background: #0d1117;
+    border-bottom: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text);
+  }
+  #interaction-panel .ip-head {
+    padding: 6px 16px;
+    color: var(--amber);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: #0d1117;
+  }
+  #interaction-panel pre {
+    margin: 0;
+    padding: 10px 16px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #9fb0d8;
+    line-height: 1.45;
+  }
   #timeline-bar::-webkit-scrollbar { height: 2px; }
   #timeline-bar::-webkit-scrollbar-thumb { background: var(--border2); }
 
@@ -274,6 +302,10 @@
   <main id="main">
     <div id="timeline-bar">
       <span style="font-family:monospace;font-size:11px;color:var(--muted)">← select a branch</span>
+    </div>
+    <div id="interaction-panel">
+      <div class="ip-head">Open dropdowns / menus (captured with snapshot)</div>
+      <pre id="interaction-json"></pre>
     </div>
     <div id="preview-area">
       <div id="empty-state">
@@ -449,6 +481,16 @@ function loadSnapshot(sessionId, urlKey, snap) {
 
   const info = document.getElementById('info-url');
   info.textContent = `#${snap.index}  ·  ${snap.trigger}  ·  ${new Date(snap.timestamp).toLocaleString()}`;
+
+  const ip = document.getElementById('interaction-panel');
+  const ij = document.getElementById('interaction-json');
+  if (snap.interactionContext) {
+    ip.style.display = 'block';
+    ij.textContent = JSON.stringify(snap.interactionContext, null, 2);
+  } else {
+    ip.style.display = 'none';
+    ij.textContent = '';
+  }
 }
 
 // ── Search filter ─────────────────────────────────────────────────────────

@@ -7,6 +7,8 @@ const http = require('http');
 const path = require('path');
 const url = require('url');
 
+const mutationCompare = require(path.join(__dirname, '..', 'mutation_compare'));
+
 const PORT = 7700;
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
 const SNAPSHOTS_DIR = path.join(__dirname, 'snapshots');
@@ -311,6 +313,10 @@ function saveSnapshot(payload, req) {
   const mutationSummary = payload.mutationSummary && typeof payload.mutationSummary === 'object'
     ? payload.mutationSummary
     : null;
+  const interactionContext =
+    payload.interactionContext && typeof payload.interactionContext === 'object'
+      ? payload.interactionContext
+      : null;
   const domSignature = payload.domSignature || computeDomSignature(html);
   const urlKey = urlToKey(rawUrl);
 
@@ -348,8 +354,11 @@ function saveSnapshot(payload, req) {
   const branchDir = path.join(SNAPSHOTS_DIR, sessionId, branchKey);
   if (!fs.existsSync(branchDir)) fs.mkdirSync(branchDir, { recursive: true });
 
+  const latestPath = path.join(branchDir, LATEST_FILE);
+  const prevHtml = mutationCompare.getLastSnapshotHtmlFromLatest(latestPath);
+
   // Keep latest.html as one accumulated file containing every captured DOM state.
-  appendSnapshotToCombinedLatest(path.join(branchDir, LATEST_FILE), {
+  appendSnapshotToCombinedLatest(latestPath, {
     index: snapshotIndex,
     trigger,
     timestamp,
@@ -361,6 +370,25 @@ function saveSnapshot(payload, req) {
   if (fullSaved) {
     fs.writeFileSync(path.join(branchDir, fullFilename), html, 'utf8');
     branch.lastFullSnapshotAt = timestamp;
+  }
+
+  if (prevHtml) {
+    try {
+      const changes = mutationCompare.compareBodiesFromHtml(prevHtml, html);
+      mutationCompare.appendMutationEntry(
+        branchDir,
+        branchKey,
+        {
+          mutation_id: snapshotIndex,
+          trigger,
+          changes,
+          interaction_context: interactionContext || undefined
+        },
+        branch.snapshots.length + 1
+      );
+    } catch (err) {
+      console.warn(`[mutation] append failed: ${err.message}`);
+    }
   }
 
   const apiEventsFile = appendApiEvents(sessionId, branchKey, snapshotIndex, timestamp, apiCalls);
@@ -388,7 +416,8 @@ function saveSnapshot(payload, req) {
     apiCallCount: apiCalls.length,
     apiEventsFile,
     changesFile,
-    mutationSummary
+    mutationSummary,
+    interactionContext
   });
 
   branch.pathname = pathname;

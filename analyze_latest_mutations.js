@@ -3,114 +3,23 @@
 const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
+const { compareTrees } = require('./mutation_compare');
 
 /**
- * DOM Mutation Analyzer for latest.html files
- * Uses the provided analyzeDomMutations() and compareTrees() functions
+ * DOM Mutation Analyzer for latest.html files.
+ * compareTrees matches the browser snippet (full text diffs, inlined attrs).
  */
 
 class LatestDOMMutationAnalyzer {
-  constructor(sessionDir) {
+  constructor(sessionDir, options = {}) {
     this.sessionDir = sessionDir;
+    this.writeJson = options.writeJson === true;
   }
 
-  /**
-   * Compare attributes between two nodes
-   */
-  compareAttributes(node1, node2, path) {
-    const changes = [];
-    const attrs1 = node1.attributes || [];
-    const attrs2 = node2.attributes || [];
-    const a1Map = {};
-    const a2Map = {};
-
-    for (let a of attrs1) a1Map[a.name] = a.value;
-    for (let a of attrs2) a2Map[a.name] = a.value;
-
-    for (let key in a1Map) {
-      // Skip noisy dynamic IDs
-      if (key === 'id' && a1Map[key].includes('recharts')) continue;
-
-      if (!(key in a2Map)) {
-        changes.push(`[-] Attribute removed: '${key}' at [${path}]`);
-      } else if (a1Map[key] !== a2Map[key]) {
-        changes.push(
-          `[*] Attribute changed: '${key}' at [${path}] ('${a1Map[key]}' -> '${a2Map[key]}')`
-        );
-      }
-    }
-    for (let key in a2Map) {
-      if (!(key in a1Map)) {
-        changes.push(`[+] Attribute added: '${key}'="${a2Map[key]}" at [${path}]`);
-      }
-    }
-
-    return changes;
+  yieldAsync() {
+    return new Promise(resolve => setTimeout(resolve, 50));
   }
 
-  /**
-   * Recursively compare DOM trees with pruning for heavy nodes
-   */
-  compareTrees(node1, node2, path) {
-    let changes = [];
-
-    // PRUNING: Skip extremely heavy or irrelevant nodes
-    const ignoreTags = ['SVG', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME'];
-    if (ignoreTags.includes(node1.nodeName.toUpperCase())) {
-      return changes;
-    }
-
-    // Compare Attributes
-    changes.push(...this.compareAttributes(node1, node2, path));
-
-    // Filter out whitespace-only text nodes
-    const c1 = Array.from(node1.childNodes).filter(
-      n => n.nodeType === 1 || (n.nodeType === 3 && n.textContent.trim() !== '')
-    );
-    const c2 = Array.from(node2.childNodes).filter(
-      n => n.nodeType === 1 || (n.nodeType === 3 && n.textContent.trim() !== '')
-    );
-
-    const maxLen = Math.max(c1.length, c2.length);
-    for (let i = 0; i < maxLen; i++) {
-      const child1 = c1[i];
-      const child2 = c2[i];
-
-      if (!child1) {
-        changes.push(`[+] Node added: <${child2.nodeName}> at [${path}]`);
-      } else if (!child2) {
-        changes.push(`[-] Node removed: <${child1.nodeName}> at [${path}]`);
-      } else if (
-        child1.nodeType !== child2.nodeType ||
-        child1.nodeName !== child2.nodeName
-      ) {
-        changes.push(
-          `[*] Node replaced: <${child1.nodeName}> to <${child2.nodeName}> at [${path}]`
-        );
-      } else if (child1.nodeType === 3) {
-        // Text node
-        if (child1.textContent.trim() !== child2.textContent.trim()) {
-          const txt1 = child1.textContent.trim().substring(0, 50);
-          const txt2 = child2.textContent.trim().substring(0, 50);
-          changes.push(
-            `[*] Text changed at [${path}]: '${txt1}...' -> '${txt2}...'`
-          );
-        }
-      } else {
-        // Recurse down element children
-        const childPath = `${path} > ${child1.nodeName.toLowerCase()}:nth-child(${
-          i + 1
-        })`;
-        changes.push(...this.compareTrees(child1, child2, childPath));
-      }
-    }
-
-    return changes;
-  }
-
-  /**
-   * Analyze DOM mutations from latest.html (async version with console-only output)
-   */
   async analyzeDomMutations(latestHtml, directory) {
     try {
       const dom = new JSDOM(latestHtml);
@@ -125,14 +34,14 @@ class LatestDOMMutationAnalyzer {
         return;
       }
 
+      const mutations = [];
+
       for (let i = 1; i < snapshots.length; i++) {
-        // Yield to prevent freezing and allow memory cleanup
-        await new Promise(resolve => setImmediate(resolve));
+        await this.yieldAsync();
 
         const prevSnap = snapshots[i - 1];
         const currSnap = snapshots[i];
 
-        // Extract the raw HTML strings
         const preElements = prevSnap.querySelectorAll('pre');
         if (preElements.length === 0) continue;
 
@@ -141,31 +50,55 @@ class LatestDOMMutationAnalyzer {
 
         if (!prevHTML || !currHTML) continue;
 
-        // Parse into DOM documents
         const prevDOM = new JSDOM(prevHTML);
         const currDOM = new JSDOM(currHTML);
 
         const index = currSnap.getAttribute('data-index');
         const trigger = currSnap.getAttribute('data-trigger');
 
-        // Compare the <body> recursively
-        const changes = this.compareTrees(
+        const changes = compareTrees(
           prevDOM.window.document.body,
           currDOM.window.document.body,
           'BODY'
         );
 
-        // Output to console with grouping
-        console.groupCollapsed(`%cMutation #${index} (${trigger}) - ${changes.length} changes`, 'color: #8b5cf6; font-weight: bold;');
-        if (changes.length === 0) {
-          console.log('%cNo changes detected.', 'color: #9ca3af;');
-        } else {
-          changes.slice(0, 50).forEach(change => console.log(change));
-          if (changes.length > 50) {
-            console.log(`%c... and ${changes.length - 50} more changes`, 'color: #9ca3af;');
+        mutations.push({
+          mutation_id: index != null ? String(index) : String(i),
+          trigger: trigger != null ? trigger : '',
+          total_changes: changes.length,
+          changes
+        });
+
+        if (!this.writeJson) {
+          console.groupCollapsed(
+            `%cMutation #${index} (${trigger}) - ${changes.length} changes`,
+            'color: #8b5cf6; font-weight: bold;'
+          );
+          if (changes.length === 0) {
+            console.log('%cNo changes detected.', 'color: #9ca3af;');
+          } else {
+            changes.slice(0, 50).forEach(change => console.log(change));
+            if (changes.length > 50) {
+              console.log(`%c... and ${changes.length - 50} more changes`, 'color: #9ca3af;');
+            }
           }
+          console.groupEnd();
         }
-        console.groupEnd();
+      }
+
+      if (this.writeJson) {
+        const outDir = path.join(this.sessionDir, directory, 'mutations');
+        fs.mkdirSync(outDir, { recursive: true });
+        const payload = {
+          directory,
+          analyzed_at: new Date().toISOString(),
+          total_snapshots: snapshots.length,
+          total_mutations: mutations.length,
+          mutations
+        };
+        const outPath = path.join(outDir, 'mutation_analysis.json');
+        fs.writeFileSync(outPath, JSON.stringify(payload, null, 2), 'utf-8');
+        console.log(`%c  Wrote ${outPath}`, 'color: #10b981; font-weight: bold;');
       }
 
       console.log(`%c  ✅ Complete!\n`, 'color: #10b981; font-weight: bold;');
@@ -174,14 +107,12 @@ class LatestDOMMutationAnalyzer {
     }
   }
 
-  /**
-   * Find all latest.html files in subdirectories
-   */
   findLatestHtmlFiles() {
-    const dirs = fs.readdirSync(this.sessionDir)
-      .filter(f => 
-        f.startsWith('platform-') && 
-        fs.statSync(path.join(this.sessionDir, f)).isDirectory()
+    const dirs = fs
+      .readdirSync(this.sessionDir)
+      .filter(
+        f =>
+          f.startsWith('platform-') && fs.statSync(path.join(this.sessionDir, f)).isDirectory()
       );
 
     const latestFiles = [];
@@ -199,11 +130,11 @@ class LatestDOMMutationAnalyzer {
     return latestFiles;
   }
 
-  /**
-   * Main analysis function (async, console-only)
-   */
   async analyze() {
-    console.log(`\n%c🔍 Analyzing Latest HTML Files for DOM Mutations\n`, 'color: #3b82f6; font-weight: bold; font-size: 14px;');
+    console.log(
+      `\n%c🔍 Analyzing Latest HTML Files for DOM Mutations\n`,
+      'color: #3b82f6; font-weight: bold; font-size: 14px;'
+    );
 
     const latestFiles = this.findLatestHtmlFiles();
     console.log(`Found ${latestFiles.length} latest.html files\n`);
@@ -222,18 +153,25 @@ class LatestDOMMutationAnalyzer {
   }
 }
 
-// Main execution
-if (require.main === module) {
+function parseCli(argv) {
+  const args = argv.slice(2);
+  const writeJson = args.includes('--write-json');
+  const positional = args.filter(a => !a.startsWith('--'));
   const sessionDir =
-    process.argv[2] ||
-    '/Users/rushiraj/htreeml/server/snapshots/session_1773989880829_0kdqkf';
+    positional[0] ||
+    '/Users/rushiraj/htreeml/server/snapshots/session_1774124147428_ecdhyl';
+  return { sessionDir, writeJson };
+}
+
+if (require.main === module) {
+  const { sessionDir, writeJson } = parseCli(process.argv);
 
   if (!fs.existsSync(sessionDir)) {
     console.error(`Error: Directory not found: ${sessionDir}`);
     process.exit(1);
   }
 
-  const analyzer = new LatestDOMMutationAnalyzer(sessionDir);
+  const analyzer = new LatestDOMMutationAnalyzer(sessionDir, { writeJson });
   analyzer.analyze().catch(err => {
     console.error('Fatal error:', err);
     process.exit(1);
