@@ -1,0 +1,40 @@
+{
+  "name": "Protect Main Branch",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/main"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion",
+      "description": "Prevent deletion of the main branch"
+    },
+    {
+      "type": "non_fast_forward",
+      "description": "Prevent force pushes and history rewrites"
+    },
+    {
+      "type": "required_linear_history",
+      "description": "Require linear history (no merge commits)"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true
+      },
+      "description": "Require pull request with 1 approval before merging"
+    }
+  ],
+  "bypass_actors": [],
+  "description": "Branch protection ruleset for the main branch to ensure code quality and prevent accidental changes"
+}
