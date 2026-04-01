@@ -54,9 +54,11 @@ const server = http.createServer((req, res) => {
     return handleIndexRoute(req, res, pathname);
   }
 
-  // Static File Serving
-  const staticPath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname);
-  if (fs.existsSync(staticPath) && fs.statSync(staticPath).isFile()) {
+  // Static File Serving — strip leading slash and enforce path stays under PUBLIC_DIR
+  const safeName = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+  const publicBase = path.resolve(PUBLIC_DIR) + path.sep;
+  const staticPath = path.resolve(PUBLIC_DIR, safeName);
+  if (staticPath.startsWith(publicBase) && fs.existsSync(staticPath) && fs.statSync(staticPath).isFile()) {
     const ext = path.extname(staticPath);
     const types = {
       '.html': 'text/html',
