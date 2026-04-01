@@ -1,16 +1,10 @@
-// DOM Tree Capture - Local Server
-// Receives snapshots from extension, saves to disk, serves viewer UI.
-
-const crypto = require('crypto');
 const fs = require('fs');
-const http = require('http');
 const path = require('path');
-const url = require('url');
+const crypto = require('crypto');
+const mutationCompare = require('../../../scripts/mutation_compare');
+const { buildAiFriendlyHtml, escapeHtml } = require('./html-cleaner');
 
-const PORT = 7700;
-const MAX_BODY_BYTES = 5 * 1024 * 1024;
-const SNAPSHOTS_DIR = path.join(__dirname, 'snapshots');
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const SNAPSHOTS_DIR = path.join(__dirname, '..', '..', 'snapshots');
 const LATEST_FILE = 'latest.html';
 const AI_LATEST_FILE = 'latest.ai.html';
 const SINGLE_FILE_MODE = false;
@@ -132,9 +126,6 @@ function loadTreeFromDisk() {
 }
 
 function findMergedBranchKey(sessionId, urlKey, domSignature) {
-  // Keep branches URL-first. Do not merge different routes even if DOM signatures match,
-  // otherwise pages like dispatcher can collapse into wx-master/create when layouts are similar.
-  // urlKey already comes from hostname + pathname, so each route gets its own branch.
   return urlKey;
 }
 
@@ -171,54 +162,6 @@ function appendApiEvents(sessionId, branchKey, snapshotIndex, timestamp, apiCall
   if (lines.length === 0) return null;
   fs.appendFileSync(filePath, lines.join('\n') + '\n', 'utf8');
   return fileName;
-}
-
-function appendChangeEvent(sessionId, branchKey, event) {
-  const branchDir = path.join(SNAPSHOTS_DIR, sessionId, branchKey);
-  if (!fs.existsSync(branchDir)) fs.mkdirSync(branchDir, { recursive: true });
-
-  const fileName = 'changes.ndjson';
-  const filePath = path.join(branchDir, fileName);
-  fs.appendFileSync(filePath, JSON.stringify(event) + '\n', 'utf8');
-  return fileName;
-}
-
-function buildAiFriendlyHtml(rawHtml) {
-  let html = String(rawHtml || '');
-
-  // Remove heavy/non-locator tags that bloat context for downstream AI parsing.
-  html = html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
-    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/<iframe\b[^>]*\/>/gi, '')
-    .replace(/<link\b[^>]*>/gi, '')
-    .replace(/<meta\b[^>]*>/gi, '');
-
-  // Remove common third-party/support widgets and capture overlays.
-  html = html
-    .replace(/<[^>]*id="chatbot-widget-script"[^>]*>[\s\S]*?<\/[^>]+>/gi, '')
-    .replace(/<[^>]*id="chatclient-bubble-button"[^>]*>[\s\S]*?<\/[^>]+>/gi, '')
-    .replace(/<[^>]*id="recharts_measurement_span"[^>]*>[\s\S]*?<\/[^>]+>/gi, '')
-    .replace(/<[^>]*id="mobile-close-button"[^>]*>[\s\S]*?<\/[^>]+>/gi, '')
-    .replace(/<div[^>]*>Saved\s+(dom-mutation|network-idle|user-click|manual|navigation)[\s\S]*?<\/div>/gi, '');
-
-  html = html
-    .replace(/\s{2,}/g, ' ')
-    .replace(/>\s+</g, '><')
-    .trim();
-
-  return html;
-}
-
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 function ensureCombinedLatestSkeleton(filePath, pageTitle) {
@@ -311,6 +254,10 @@ function saveSnapshot(payload, req) {
   const mutationSummary = payload.mutationSummary && typeof payload.mutationSummary === 'object'
     ? payload.mutationSummary
     : null;
+  const interactionContext =
+    payload.interactionContext && typeof payload.interactionContext === 'object'
+      ? payload.interactionContext
+      : null;
   const domSignature = payload.domSignature || computeDomSignature(html);
   const urlKey = urlToKey(rawUrl);
 
@@ -348,14 +295,17 @@ function saveSnapshot(payload, req) {
   const branchDir = path.join(SNAPSHOTS_DIR, sessionId, branchKey);
   if (!fs.existsSync(branchDir)) fs.mkdirSync(branchDir, { recursive: true });
 
+  const latestPath = path.join(branchDir, LATEST_FILE);
+  const prevHtml = mutationCompare.getLastSnapshotHtmlFromLatest(latestPath);
+
   // Keep latest.html as one accumulated file containing every captured DOM state.
-  appendSnapshotToCombinedLatest(path.join(branchDir, LATEST_FILE), {
+  appendSnapshotToCombinedLatest(latestPath, {
     index: snapshotIndex,
     trigger,
     timestamp,
     url: rawUrl,
     title
-  }, html);
+  }, aiFriendlyHtml);
   fs.writeFileSync(path.join(branchDir, AI_LATEST_FILE), aiFriendlyHtml, 'utf8');
   pruneLegacyHtmlFiles(branchDir);
   if (fullSaved) {
@@ -363,17 +313,26 @@ function saveSnapshot(payload, req) {
     branch.lastFullSnapshotAt = timestamp;
   }
 
+  if (prevHtml) {
+    try {
+      const changes = mutationCompare.compareBodiesFromHtml(prevHtml, html);
+      mutationCompare.appendMutationEntry(
+        branchDir,
+        branchKey,
+        {
+          mutation_id: snapshotIndex,
+          trigger,
+          changes,
+          interaction_context: interactionContext || undefined
+        },
+        branch.snapshots.length + 1
+      );
+    } catch (err) {
+      console.warn(`[mutation] append failed: ${err.message}`);
+    }
+  }
+
   const apiEventsFile = appendApiEvents(sessionId, branchKey, snapshotIndex, timestamp, apiCalls);
-  const changesFile = appendChangeEvent(sessionId, branchKey, {
-    index: snapshotIndex,
-    trigger,
-    timestamp,
-    url: rawUrl,
-    domSignature,
-    fullSaved,
-    apiCallCount: apiCalls.length,
-    mutationSummary
-  });
 
   branch.snapshots.push({
     index: snapshotIndex,
@@ -387,8 +346,9 @@ function saveSnapshot(payload, req) {
     url: rawUrl,
     apiCallCount: apiCalls.length,
     apiEventsFile,
-    changesFile,
-    mutationSummary
+    domSignature,
+    mutationSummary,
+    interactionContext
   });
 
   branch.pathname = pathname;
@@ -405,161 +365,22 @@ function saveSnapshot(payload, req) {
   return { sessionId, urlKey: branchKey, snapshotCount, mergedBySignature };
 }
 
-function sendJson(res, status, data) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(data));
+function getTree() {
+  return tree;
 }
 
-loadTreeFromDisk();
+function getSnapshotCount() {
+  return snapshotCount;
+}
 
-const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Dom-Client-Id');
+function getSnapshotsDir() {
+  return SNAPSHOTS_DIR;
+}
 
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-
-  const parsed = url.parse(req.url, true);
-  const pathname = parsed.pathname;
-
-  if (req.method === 'GET' && pathname === '/ping') {
-    sendJson(res, 200, { ok: true, snapshots: snapshotCount });
-    return;
-  }
-
-  if (req.method === 'POST' && pathname === '/snapshot') {
-    let body = '';
-    let responded = false;
-    req.setEncoding('utf8');
-
-    const timeout = setTimeout(() => {
-      if (responded) return;
-      responded = true;
-      req.destroy();
-      sendJson(res, 408, { error: 'Request timeout' });
-    }, 10000);
-
-    req.on('data', (chunk) => {
-      if (responded) return;
-      body += chunk;
-      if (body.length > MAX_BODY_BYTES) {
-        responded = true;
-        clearTimeout(timeout);
-        req.destroy();
-        sendJson(res, 413, { error: 'Payload too large' });
-      }
-    });
-
-    req.on('end', () => {
-      if (responded) return;
-      responded = true;
-      clearTimeout(timeout);
-
-      try {
-        const payload = JSON.parse(body || '{}');
-        if (!payload.url || payload.html === undefined) {
-          sendJson(res, 400, {
-            error: 'Missing required fields: url, html',
-            detail: {
-              sessionId: !!payload.sessionId,
-              url: !!payload.url,
-              html: payload.html !== undefined
-            }
-          });
-          return;
-        }
-
-        const result = saveSnapshot(payload, req);
-        sendJson(res, 200, { ok: true, ...result });
-      } catch (err) {
-        sendJson(res, 400, { error: `Invalid JSON: ${err.message}` });
-      }
-    });
-
-    req.on('error', (err) => {
-      if (responded) return;
-      responded = true;
-      clearTimeout(timeout);
-      sendJson(res, 400, { error: `Request error: ${err.message}` });
-    });
-    return;
-  }
-
-  if (req.method === 'GET' && pathname === '/api/tree') {
-    const sessions = Object.entries(tree).map(([sessionId, branches]) => ({
-      sessionId,
-      branches: Object.values(branches).map((branch) => ({
-        urlKey: branch.urlKey,
-        url: branch.url,
-        pathname: branch.pathname,
-        title: branch.title,
-        urls: branch.urls || [branch.url],
-        mergedBySignature: !!branch.mergedBySignature,
-        snapshotCount: branch.snapshots.length,
-        lastSnapshot: branch.snapshots[branch.snapshots.length - 1]
-      }))
-    }));
-    sendJson(res, 200, sessions);
-    return;
-  }
-
-  if (req.method === 'GET' && pathname === '/api/snapshots') {
-    const { session, branch } = parsed.query;
-    if (!session || !branch || !tree[session] || !tree[session][branch]) {
-      sendJson(res, 404, {});
-      return;
-    }
-    sendJson(res, 200, tree[session][branch]);
-    return;
-  }
-
-  if (req.method === 'GET' && pathname === '/api/file') {
-    const { session, branch, file } = parsed.query;
-    const resolved = path.resolve(SNAPSHOTS_DIR, String(session || ''), String(branch || ''), String(file || ''));
-
-    if (!resolved.startsWith(path.resolve(SNAPSHOTS_DIR)) || !fs.existsSync(resolved)) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    fs.createReadStream(resolved).pipe(res);
-    return;
-  }
-
-  const staticPath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname);
-  if (fs.existsSync(staticPath) && fs.statSync(staticPath).isFile()) {
-    const ext = path.extname(staticPath);
-    const types = {
-      '.html': 'text/html',
-      '.js': 'application/javascript',
-      '.css': 'text/css'
-    };
-    res.writeHead(200, { 'Content-Type': types[ext] || 'text/plain' });
-    fs.createReadStream(staticPath).pipe(res);
-    return;
-  }
-
-  const indexPath = path.join(PUBLIC_DIR, 'index.html');
-  if (fs.existsSync(indexPath)) {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    fs.createReadStream(indexPath).pipe(res);
-    return;
-  }
-
-  res.writeHead(404);
-  res.end('Not found');
-});
-
-server.listen(PORT, () => {
-  console.log('');
-  console.log('DOM Tree Capture Server');
-  console.log(`Running   : http://localhost:${PORT}`);
-  console.log(`Snapshots : ${SNAPSHOTS_DIR}`);
-  console.log('');
-});
+module.exports = {
+  loadTreeFromDisk,
+  saveSnapshot,
+  getTree,
+  getSnapshotCount,
+  getSnapshotsDir
+};
