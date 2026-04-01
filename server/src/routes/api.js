@@ -3,11 +3,36 @@ const path = require('path');
 const { getTree, getSnapshotCount, getSnapshotsDir } = require('../services/snapshot-storage');
 const { sendJson } = require('./snapshot');
 
-// Returns true when a path segment is safe (no '..' and no separators)
+/**
+ * Check whether a single path segment is safe for use in filesystem paths.
+ * @param {string} segment - The path segment to validate (a single path component).
+ * @returns {boolean} `true` if the segment does not contain `..` or path separators (`/` or `\`), `false` otherwise.
+ */
 function isValidSegment(segment) {
   return !(/\.\.|[/\\]/.test(segment));
 }
 
+/**
+ * Send a JSON array describing snapshot sessions and their branches.
+ *
+ * The response body is an array where each element represents a session:
+ * {
+ *   sessionId: string,
+ *   branches: Array<{
+ *     urlKey: string,
+ *     url: string,
+ *     pathname: string,
+ *     title: string,
+ *     urls: string[],
+ *     mergedBySignature: boolean,
+ *     snapshotCount: number,
+ *     lastSnapshot: any
+ *   }>
+ * }
+ *
+ * @param {import('http').IncomingMessage} req - The incoming HTTP request.
+ * @param {import('http').ServerResponse} res - The HTTP response used to send JSON.
+ */
 function handleApiTree(req, res) {
   const tree = getTree();
   const sessions = Object.entries(tree).map(([sessionId, branches]) => ({
@@ -36,6 +61,19 @@ function handleApiSnapshots(req, res, parsedUrl) {
   sendJson(res, 200, tree[session][branch]);
 }
 
+/**
+ * Serve an HTML snapshot file for a given session, branch, and file.
+ *
+ * Validates that `parsedUrl.query` contains safe `session`, `branch`, and `file`
+ * segments; responds with HTTP 400 for invalid segments. Resolves the target
+ * file inside the configured snapshots directory and responds with HTTP 404
+ * if the file does not exist or is outside the snapshots directory. If valid,
+ * streams the file to the response with Content-Type `text/html; charset=utf-8`.
+ *
+ * @param {import('http').IncomingMessage} req - Incoming HTTP request.
+ * @param {import('http').ServerResponse} res - HTTP response to write to.
+ * @param {{ query: { session?: string, branch?: string, file?: string } }} parsedUrl - Parsed URL object whose `query` provides `session`, `branch`, and `file`.
+ */
 function handleApiFile(req, res, parsedUrl) {
   const { session, branch, file } = parsedUrl.query;
   const snapshotsDir = getSnapshotsDir();
