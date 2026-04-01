@@ -251,6 +251,26 @@ npm run build
 
 Then reload the extension in Chrome.
 
+### Branch Protection
+
+The `main` branch is protected by GitHub Branch Rulesets to ensure code quality and prevent accidental changes.
+
+**Protection Rules:**
+- ✅ Requires pull request with 1 approval before merging
+- ✅ Prevents force pushes and history rewrites
+- ✅ Prevents branch deletion
+- ✅ Requires linear history (use squash/rebase merges)
+- ✅ Requires all review conversations to be resolved
+
+**Workflow:**
+1. Create a feature branch: `git checkout -b feature/your-feature`
+2. Make your changes and commit
+3. Push and create a pull request to `main`
+4. Get approval from a reviewer
+5. Merge using squash or rebase
+
+See [BRANCH_PROTECTION_GUIDE.md](BRANCH_PROTECTION_GUIDE.md) for detailed setup instructions.
+
 ### Tech Stack
 
 - **Server**: Node.js 18+, native `http` module
