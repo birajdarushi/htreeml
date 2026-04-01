@@ -9,6 +9,11 @@ const path = require('path');
 
 const INDEX_OUTPUT_DIR = path.join(__dirname, '..', '..', 'index-output');
 
+// Returns true when a URL path segment is safe (no '..' and no separators)
+function isValidSegment(segment) {
+  return !(/\.\.|[/\\]/.test(segment));
+}
+
 function sendJson(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
@@ -81,6 +86,12 @@ function handleApiIndexList(req, res) {
  * Returns metadata about the index for a specific page
  */
 function handleApiIndexMeta(req, res, sessionId, urlKey) {
+  // Validate segments to prevent path traversal
+  if (!isValidSegment(sessionId) || !isValidSegment(urlKey)) {
+    sendJson(res, 400, { error: 'Invalid path segment' });
+    return;
+  }
+
   const indexDir = path.join(INDEX_OUTPUT_DIR, sessionId, urlKey);
   
   if (!fs.existsSync(indexDir)) {
@@ -98,7 +109,6 @@ function handleApiIndexMeta(req, res, sessionId, urlKey) {
   const result = {
     sessionId,
     urlKey,
-    indexDir,
     files: {
       indexMd: {
         exists: fs.existsSync(indexMdPath),
@@ -120,8 +130,9 @@ function handleApiIndexMeta(req, res, sessionId, urlKey) {
  * Returns the actual file content (index.md or pom_*.py)
  */
 function handleApiIndexFile(req, res, sessionId, urlKey, filename) {
-  // Security: prevent path traversal
-  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+  // Security: prevent path traversal in all segments
+  if (!isValidSegment(sessionId) || !isValidSegment(urlKey) ||
+      filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
     sendJson(res, 400, { error: 'Invalid filename' });
     return;
   }
@@ -140,7 +151,8 @@ function handleApiIndexFile(req, res, sessionId, urlKey, filename) {
   
   // Security: ensure we're still within INDEX_OUTPUT_DIR
   const resolvedPath = path.resolve(filePath);
-  if (!resolvedPath.startsWith(path.resolve(INDEX_OUTPUT_DIR))) {
+  const base = path.resolve(INDEX_OUTPUT_DIR) + path.sep;
+  if (!resolvedPath.startsWith(base)) {
     sendJson(res, 403, { error: 'Access denied' });
     return;
   }
@@ -195,6 +207,11 @@ function handleIndexRoute(req, res, pathname) {
   }
 
   // /api/index/:sessionId - list urlKeys for session
+  if (!isValidSegment(sessionId)) {
+    sendJson(res, 400, { error: 'Invalid path segment' });
+    return;
+  }
+
   const sessionPath = path.join(INDEX_OUTPUT_DIR, sessionId);
   if (!fs.existsSync(sessionPath)) {
     sendJson(res, 404, { error: 'Session not found' });
