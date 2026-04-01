@@ -3,6 +3,11 @@ const path = require('path');
 const { getTree, getSnapshotCount, getSnapshotsDir } = require('../services/snapshot-storage');
 const { sendJson } = require('./snapshot');
 
+// Returns true when a path segment is safe (no '..' and no separators)
+function isValidSegment(segment) {
+  return !(/\.\.|[/\\]/.test(segment));
+}
+
 function handleApiTree(req, res) {
   const tree = getTree();
   const sessions = Object.entries(tree).map(([sessionId, branches]) => ({
@@ -34,9 +39,21 @@ function handleApiSnapshots(req, res, parsedUrl) {
 function handleApiFile(req, res, parsedUrl) {
   const { session, branch, file } = parsedUrl.query;
   const snapshotsDir = getSnapshotsDir();
-  const resolved = path.resolve(snapshotsDir, String(session || ''), String(branch || ''), String(file || ''));
 
-  if (!resolved.startsWith(path.resolve(snapshotsDir)) || !fs.existsSync(resolved)) {
+  // Validate segments: deny '..' and path separators to prevent traversal
+  if (
+    !isValidSegment(String(session || '')) ||
+    !isValidSegment(String(branch || '')) ||
+    !isValidSegment(String(file || ''))
+  ) {
+    res.writeHead(400);
+    res.end('Bad request');
+    return;
+  }
+
+  const resolved = path.resolve(snapshotsDir, String(session || ''), String(branch || ''), String(file || ''));
+  const base = path.resolve(snapshotsDir) + path.sep;
+  if (!resolved.startsWith(base) || !fs.existsSync(resolved)) {
     res.writeHead(404);
     res.end('Not found');
     return;
