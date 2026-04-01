@@ -9,11 +9,22 @@ const path = require('path');
 
 const INDEX_OUTPUT_DIR = path.join(__dirname, '..', '..', 'index-output');
 
-// Returns true when a URL path segment is safe (no '..' and no separators)
+/**
+ * Determine whether a URL path segment is safe for use in filesystem or route paths.
+ *
+ * @param {string} segment - The path segment to validate.
+ * @returns {boolean} `true` if the segment contains no `..` and no path separators (`/` or `\`), `false` otherwise.
+ */
 function isValidSegment(segment) {
   return !(/\.\.|[/\\]/.test(segment));
 }
 
+/**
+ * Send a JSON HTTP response with the given status code and payload.
+ * @param {import('http').ServerResponse} res - The HTTP response object.
+ * @param {number} status - HTTP status code to set on the response.
+ * @param {*} data - The value to serialize to JSON for the response body.
+ */
 function sendJson(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(data));
@@ -82,8 +93,17 @@ function handleApiIndexList(req, res) {
 }
 
 /**
- * GET /api/index/:sessionId/:urlKey
- * Returns metadata about the index for a specific page
+ * Serve metadata for an index page identified by `sessionId` and `urlKey`.
+ *
+ * Validates `sessionId` and `urlKey` for unsafe path segments. If validation fails,
+ * responds with HTTP 400. If the corresponding index directory does not exist,
+ * responds with HTTP 404 and a hint to run the index generation. Otherwise responds
+ * with HTTP 200 and a JSON object containing `sessionId`, `urlKey`, and `files`
+ * metadata for `index.md` and the `pom_<urlKey>.py` file (existence flags and
+ * public API paths; `pom.path` is `null` when missing).
+ *
+ * @param {string} sessionId - Session directory name; must not contain `..`, `/`, or `\`.
+ * @param {string} urlKey - Page directory name within the session; must not contain `..`, `/`, or `\`.
  */
 function handleApiIndexMeta(req, res, sessionId, urlKey) {
   // Validate segments to prevent path traversal
@@ -126,8 +146,24 @@ function handleApiIndexMeta(req, res, sessionId, urlKey) {
 }
 
 /**
- * GET /api/index/:sessionId/:urlKey/:filename
- * Returns the actual file content (index.md or pom_*.py)
+ * Serve an index file for a given session and urlKey.
+ *
+ * Validates `sessionId`, `urlKey`, and `filename` for path-safety, restricts served files to
+ * `index.md` or `pom_{urlKey}.py`, enforces that the resolved file path stays inside the
+ * configured INDEX_OUTPUT_DIR, and streams the file content with an appropriate Content-Type.
+ *
+ * Possible HTTP responses:
+ * - 200: file content (Content-Type: Markdown for `.md`, Python for `.py`, plain text otherwise)
+ * - 400: invalid path segments or filename
+ * - 403: file not allowed or access denied (path outside INDEX_OUTPUT_DIR)
+ * - 404: file not found
+ * - 500: failed to read file
+ *
+ * @param {import('http').IncomingMessage} req - The incoming HTTP request.
+ * @param {import('http').ServerResponse} res - The HTTP response object used to send the result.
+ * @param {string} sessionId - The session directory name under INDEX_OUTPUT_DIR; must be a safe path segment.
+ * @param {string} urlKey - The urlKey directory name under the session; must be a safe path segment.
+ * @param {string} filename - Requested filename (allowed: `index.md` or `pom_{urlKey}.py`).
  */
 function handleApiIndexFile(req, res, sessionId, urlKey, filename) {
   // Security: prevent path traversal in all segments
@@ -177,8 +213,17 @@ function handleApiIndexFile(req, res, sessionId, urlKey, filename) {
 }
 
 /**
- * Main router for /api/index/* routes
- * Call this from the main server with the pathname
+ * Route handler for /api/index paths; dispatches to list, session listing, metadata, or file handlers based on the pathname.
+ *
+ * Supported routes:
+ * - /api/index — lists all sessions
+ * - /api/index/:sessionId — lists urlKeys for the session (returns 400 for invalid sessionId, 404 if session not found)
+ * - /api/index/:sessionId/:urlKey — returns metadata for the urlKey
+ * - /api/index/:sessionId/:urlKey/:filename — serves the requested file if allowed
+ *
+ * @param {import('http').IncomingMessage} req - The incoming HTTP request.
+ * @param {import('http').ServerResponse} res - The HTTP response used to send results.
+ * @param {string} pathname - The request pathname to route; expected forms are listed above.
  */
 function handleIndexRoute(req, res, pathname) {
   // Parse the path: /api/index[/:sessionId[/:urlKey[/:filename]]]
