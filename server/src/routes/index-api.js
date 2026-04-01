@@ -1,0 +1,223 @@
+/**
+ * Index API Routes
+ * 
+ * Serves generated index files (index.md, POM .py) from server/index-output/
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const INDEX_OUTPUT_DIR = path.join(__dirname, '..', '..', 'index-output');
+
+function sendJson(res, status, data) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data));
+}
+
+function sendText(res, status, content, contentType = 'text/plain; charset=utf-8') {
+  res.writeHead(status, { 'Content-Type': contentType });
+  res.end(content);
+}
+
+/**
+ * GET /api/index
+ * Returns a list of all indexed sessions and urlKeys
+ */
+function handleApiIndexList(req, res) {
+  if (!fs.existsSync(INDEX_OUTPUT_DIR)) {
+    sendJson(res, 200, { sessions: [], message: 'No indexes generated yet. Run: npm run index' });
+    return;
+  }
+
+  const result = { sessions: [] };
+
+  try {
+    const sessions = fs.readdirSync(INDEX_OUTPUT_DIR);
+    
+    for (const sessionId of sessions) {
+      const sessionPath = path.join(INDEX_OUTPUT_DIR, sessionId);
+      if (!fs.statSync(sessionPath).isDirectory()) continue;
+
+      const sessionEntry = {
+        sessionId,
+        pages: []
+      };
+
+      const urlKeys = fs.readdirSync(sessionPath);
+      for (const urlKey of urlKeys) {
+        const urlKeyPath = path.join(sessionPath, urlKey);
+        if (!fs.statSync(urlKeyPath).isDirectory()) continue;
+
+        const indexMdExists = fs.existsSync(path.join(urlKeyPath, 'index.md'));
+        const pomFile = `pom_${urlKey}.py`;
+        const pomExists = fs.existsSync(path.join(urlKeyPath, pomFile));
+
+        sessionEntry.pages.push({
+          urlKey,
+          hasIndex: indexMdExists,
+          hasPom: pomExists,
+          pomFile: pomExists ? pomFile : null,
+          paths: {
+            index: `/api/index/${sessionId}/${urlKey}`,
+            indexMd: `/api/index/${sessionId}/${urlKey}/index.md`,
+            pom: pomExists ? `/api/index/${sessionId}/${urlKey}/${pomFile}` : null
+          }
+        });
+      }
+
+      if (sessionEntry.pages.length > 0) {
+        result.sessions.push(sessionEntry);
+      }
+    }
+
+    sendJson(res, 200, result);
+  } catch (err) {
+    sendJson(res, 500, { error: `Failed to list indexes: ${err.message}` });
+  }
+}
+
+/**
+ * GET /api/index/:sessionId/:urlKey
+ * Returns metadata about the index for a specific page
+ */
+function handleApiIndexMeta(req, res, sessionId, urlKey) {
+  const indexDir = path.join(INDEX_OUTPUT_DIR, sessionId, urlKey);
+  
+  if (!fs.existsSync(indexDir)) {
+    sendJson(res, 404, { 
+      error: 'Index not found',
+      hint: 'Run: npm run index'
+    });
+    return;
+  }
+
+  const indexMdPath = path.join(indexDir, 'index.md');
+  const pomFile = `pom_${urlKey}.py`;
+  const pomPath = path.join(indexDir, pomFile);
+
+  const result = {
+    sessionId,
+    urlKey,
+    indexDir,
+    files: {
+      indexMd: {
+        exists: fs.existsSync(indexMdPath),
+        path: `/api/index/${sessionId}/${urlKey}/index.md`
+      },
+      pom: {
+        exists: fs.existsSync(pomPath),
+        filename: pomFile,
+        path: fs.existsSync(pomPath) ? `/api/index/${sessionId}/${urlKey}/${pomFile}` : null
+      }
+    }
+  };
+
+  sendJson(res, 200, result);
+}
+
+/**
+ * GET /api/index/:sessionId/:urlKey/:filename
+ * Returns the actual file content (index.md or pom_*.py)
+ */
+function handleApiIndexFile(req, res, sessionId, urlKey, filename) {
+  // Security: prevent path traversal
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    sendJson(res, 400, { error: 'Invalid filename' });
+    return;
+  }
+
+  // Only allow specific files
+  const allowedFiles = ['index.md', `pom_${urlKey}.py`];
+  if (!allowedFiles.includes(filename)) {
+    sendJson(res, 403, { 
+      error: 'File not allowed',
+      allowed: allowedFiles
+    });
+    return;
+  }
+
+  const filePath = path.join(INDEX_OUTPUT_DIR, sessionId, urlKey, filename);
+  
+  // Security: ensure we're still within INDEX_OUTPUT_DIR
+  const resolvedPath = path.resolve(filePath);
+  if (!resolvedPath.startsWith(path.resolve(INDEX_OUTPUT_DIR))) {
+    sendJson(res, 403, { error: 'Access denied' });
+    return;
+  }
+
+  if (!fs.existsSync(filePath)) {
+    sendJson(res, 404, { error: 'File not found' });
+    return;
+  }
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const contentType = filename.endsWith('.md') 
+      ? 'text/markdown; charset=utf-8'
+      : filename.endsWith('.py')
+        ? 'text/x-python; charset=utf-8'
+        : 'text/plain; charset=utf-8';
+    
+    sendText(res, 200, content, contentType);
+  } catch (err) {
+    sendJson(res, 500, { error: `Failed to read file: ${err.message}` });
+  }
+}
+
+/**
+ * Main router for /api/index/* routes
+ * Call this from the main server with the pathname
+ */
+function handleIndexRoute(req, res, pathname) {
+  // Parse the path: /api/index[/:sessionId[/:urlKey[/:filename]]]
+  const match = pathname.match(/^\/api\/index(?:\/([^/]+))?(?:\/([^/]+))?(?:\/([^/]+))?$/);
+  
+  if (!match) {
+    sendJson(res, 400, { error: 'Invalid index route' });
+    return;
+  }
+
+  const [, sessionId, urlKey, filename] = match;
+
+  // /api/index - list all
+  if (!sessionId) {
+    return handleApiIndexList(req, res);
+  }
+
+  // /api/index/:sessionId/:urlKey/:filename - get file content
+  if (sessionId && urlKey && filename) {
+    return handleApiIndexFile(req, res, sessionId, urlKey, filename);
+  }
+
+  // /api/index/:sessionId/:urlKey - get metadata
+  if (sessionId && urlKey) {
+    return handleApiIndexMeta(req, res, sessionId, urlKey);
+  }
+
+  // /api/index/:sessionId - list urlKeys for session
+  const sessionPath = path.join(INDEX_OUTPUT_DIR, sessionId);
+  if (!fs.existsSync(sessionPath)) {
+    sendJson(res, 404, { error: 'Session not found' });
+    return;
+  }
+
+  try {
+    const urlKeys = fs.readdirSync(sessionPath)
+      .filter(f => fs.statSync(path.join(sessionPath, f)).isDirectory());
+    
+    sendJson(res, 200, {
+      sessionId,
+      urlKeys,
+      paths: urlKeys.map(uk => ({
+        urlKey: uk,
+        path: `/api/index/${sessionId}/${uk}`
+      }))
+    });
+  } catch (err) {
+    sendJson(res, 500, { error: `Failed to list session: ${err.message}` });
+  }
+}
+
+module.exports = {
+  handleIndexRoute
+};
